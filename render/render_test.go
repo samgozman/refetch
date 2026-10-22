@@ -51,9 +51,24 @@ func chromeOrSkip(t *testing.T) string {
 	return c
 }
 
-// loopbackDial lets the test reach its own server; production dials with
-// fetch.DialContext, which refuses loopback.
-var loopbackDial = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+// loopbackDial lets the test reach its own server and nothing else, so the
+// tests never touch the network (Chrome's own background requests to Google
+// are refused too). Production dials with fetch.DialContext, which refuses
+// loopback.
+func loopbackDial(ctx context.Context, network, address string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		outside.Add(1)
+		return nil, errors.New(address + " is outside the test")
+	}
+	return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, address)
+}
+
+// outside counts dials the tests refused because they left the machine.
+var outside atomic.Int32
 
 func TestRenderJavaScriptAndChallenge(t *testing.T) {
 	chrome := chromeOrSkip(t)
@@ -65,6 +80,7 @@ func TestRenderJavaScriptAndChallenge(t *testing.T) {
 			t.Errorf("%s: err %v, dom %.300q", path, err, dom)
 		}
 	}
+	t.Logf("refused %d dials outside the test machine", outside.Load())
 }
 
 func TestRenderGoesThroughThePublicOnlyDialer(t *testing.T) {
