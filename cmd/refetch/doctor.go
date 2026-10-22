@@ -1,19 +1,23 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/samgozman/refetch/config"
+	"github.com/samgozman/refetch/fetch"
 	"github.com/samgozman/refetch/render"
 	"github.com/samgozman/refetch/store"
 )
@@ -30,7 +34,7 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
 	env := claudeEnv{home: home, cwd: cwd}
-	checks := []check{versionCheck()}
+	checks := []check{versionCheck(), updateCheck(ctx)}
 	cfg, err := config.Load()
 	if err != nil {
 		checks = append(checks, check{false, "config", err.Error()})
@@ -61,6 +65,86 @@ func versionCheck() check {
 		return check{false, "version", fmt.Sprintf("binary %s, plugin %s: run /reload-plugins, or check REFETCH_BIN", bin, plugin)}
 	}
 	return check{true, "version", "refetch " + bin + ", same as the plugin"}
+}
+
+// latestReleaseURL is GitHub's answer for refetch's newest release; tests
+// point it and releaseClient at a loopback server.
+var (
+	latestReleaseURL = "https://api.github.com/repos/samgozman/refetch/releases/latest"
+	releaseClient    = &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{Proxy: nil, DialContext: fetch.DialContext},
+	}
+)
+
+// updateCheck warns when the plugin (or, outside the plugin, the binary) is
+// more than one minor version behind the latest release. Not reaching
+// GitHub is not a setup problem, so it never fails the check.
+func updateCheck(ctx context.Context) check {
+	current := cmp.Or(os.Getenv("REFETCH_PLUGIN_VERSION"), strings.TrimPrefix(buildVersion(), "v"))
+	cur, ok := minorVersion(current)
+	if !ok {
+		return check{true, "updates", "not checked for a development build"}
+	}
+	latest, err := latestRelease(ctx)
+	if err != nil {
+		return check{true, "updates", "could not check for a newer release: " + err.Error()}
+	}
+	lat, ok := minorVersion(latest)
+	switch {
+	case !ok:
+		return check{true, "updates", "could not read the latest release " + strconv.Quote(latest)}
+	case lat[0] > cur[0] || (lat[0] == cur[0] && lat[1] > cur[1]+1):
+		return check{false, "updates", fmt.Sprintf("refetch %s is out of date; the latest release is %s.\n", current, latest) +
+			"Turn on auto-update (/plugin → Marketplaces → refetch), or run: claude plugin update refetch@refetch"}
+	case latest == current:
+		return check{true, "updates", current + " is the latest release"}
+	}
+	return check{true, "updates", fmt.Sprintf("%s; the latest release is %s", current, latest)}
+}
+
+func latestRelease(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseURL, http.NoBody)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "refetch/"+buildVersion())
+	resp, err := releaseClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub answered %s", resp.Status)
+	}
+	var rel struct {
+		Tag string `json:"tag_name"`
+	}
+	if err := json.UnmarshalRead(io.LimitReader(resp.Body, 1<<20), &rel); err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(rel.Tag, "v"), nil
+}
+
+// minorVersion parses the major and minor numbers of a release version
+// such as 1.2.3; development and snapshot builds do not parse.
+func minorVersion(v string) ([2]int, bool) {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return [2]int{}, false
+	}
+	var out [2]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return [2]int{}, false
+		}
+		if i < 2 {
+			out[i] = n
+		}
+	}
+	return out, true
 }
 
 func configCheck() check {

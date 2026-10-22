@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +38,7 @@ func TestDoctor(t *testing.T) {
 	t.Setenv("REFETCH_CHROME", filepath.Join(home, "no-chrome"))
 	t.Setenv("REFETCH_PLUGIN_VERSION", "1.2.3")
 	t.Chdir(home)
+	fakeLatestRelease(t, http.StatusOK, `{"tag_name": "v1.4.0"}`)
 	var out bytes.Buffer
 	if err := runDoctor(t.Context(), &out); err != nil {
 		t.Fatal(err)
@@ -43,6 +46,7 @@ func TestDoctor(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"! version      binary", "plugin 1.2.3",
+		"! updates      refetch 1.2.3 is out of date; the latest release is 1.4.0",
 		"✓ permission   fetch_page is allowed",
 		"! chrome       no Chrome or Chromium found",
 		"plugin context-mode@context-mode: PreToolUse on WebFetch (denies WebFetch",
@@ -52,8 +56,45 @@ func TestDoctor(t *testing.T) {
 			t.Errorf("doctor output lacks %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "Bash") || strings.Contains(got, "refetch@refetch") {
+	if strings.Contains(got, "Bash") || strings.Contains(got, "plugin refetch@refetch") {
 		t.Errorf("doctor lists unrelated hooks:\n%s", got)
+	}
+}
+
+// fakeLatestRelease points doctor's release check at a loopback server.
+func fakeLatestRelease(t *testing.T, status int, body string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	oldURL, oldClient := latestReleaseURL, releaseClient
+	latestReleaseURL, releaseClient = srv.URL, srv.Client()
+	t.Cleanup(func() { latestReleaseURL, releaseClient = oldURL, oldClient })
+}
+
+func TestUpdateCheck(t *testing.T) {
+	for _, tc := range []struct {
+		current, status, body string
+		ok                    bool
+		want                  string
+	}{
+		{"0.3.1", "200", `{"tag_name": "v0.3.1"}`, true, "0.3.1 is the latest release"},
+		{"0.3.1", "200", `{"tag_name": "v0.4.2"}`, true, "0.3.1; the latest release is 0.4.2"},
+		{"0.3.1", "200", `{"tag_name": "v0.5.0"}`, false, "refetch 0.3.1 is out of date; the latest release is 0.5.0"},
+		{"0.9.0", "200", `{"tag_name": "v1.0.0"}`, false, "out of date"},
+		{"1.0.0", "404", `{"message": "Not Found"}`, true, "could not check for a newer release: GitHub answered 404"},
+		{"1.0.0", "200", `{"tag_name": "nightly"}`, true, `could not read the latest release "nightly"`},
+		{"0.0.0-SNAPSHOT-554a66a", "200", `{"tag_name": "v1.0.0"}`, true, "not checked for a development build"},
+	} {
+		code := map[string]int{"200": http.StatusOK, "404": http.StatusNotFound}[tc.status]
+		fakeLatestRelease(t, code, tc.body)
+		t.Setenv("REFETCH_PLUGIN_VERSION", tc.current)
+		c := updateCheck(t.Context())
+		if c.ok != tc.ok || !strings.Contains(c.detail, tc.want) {
+			t.Errorf("%s against %s: %+v, want ok=%v and %q", tc.current, tc.body, c, tc.ok, tc.want)
+		}
 	}
 }
 
