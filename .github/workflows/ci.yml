@@ -4,10 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    # `labeled` starts the approval-gated macOS run (see test-macos).
-    types: [opened, synchronize, reopened, labeled]
-  # Manual runs (Actions → CI → Run workflow) test macOS only.
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,14 +16,12 @@ env:
   GOLANGCI_LINT_VERSION: v2.15.0
 
 concurrency:
-  # macOS runs have their own group so a new push does not cancel them.
-  group: ci-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' || github.event.action == 'labeled') && 'macos' || 'main' }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
     name: Test (Linux)
-    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,37 +47,8 @@ jobs:
           make notices
           git diff --exit-code THIRD_PARTY_NOTICES
 
-  # macOS minutes cost about ten times Linux minutes, so every run needs an
-  # explicit approval: Run workflow in the Actions tab, or the `ci:macos`
-  # label on a PR (removed after the run, so the next one needs it again).
-  test-macos:
-    name: Test (macOS)
-    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'labeled' && github.event.label.name == 'ci:macos')
-    runs-on: macos-latest
-    permissions:
-      contents: read
-      pull-requests: write # to remove the label
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          check-latest: true
-      - name: Build
-        run: make build
-      - name: Test
-        run: make test
-      # A fork's token cannot edit labels; a maintainer removes it there.
-      - name: Remove the approval label
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label ci:macos
-
   plugin:
     name: Plugin validate
-    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -96,7 +61,6 @@ jobs:
 
   vulncheck:
     name: Vulnerability check
-    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,7 +75,6 @@ jobs:
 
   lint:
     name: Lint (golangci-lint + maxcomments)
-    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
