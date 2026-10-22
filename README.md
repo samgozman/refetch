@@ -57,6 +57,35 @@ other hooks on WebFetch.
 
 ## How it works
 
+refetch sits after Claude Code's own web reads. It changes nothing while
+they work and steps in only when one fails.
+
+```mermaid
+flowchart TD
+    Claude["Claude reads a URL"] --> WebFetch["WebFetch"]
+    WebFetch -. "with context-mode:<br/>WebFetch is denied" .-> Ctx["ctx_fetch_and_index"]
+    WebFetch --> Read{"Got the page?"}
+    Ctx --> Read
+    Read -- "yes" --> Done(["Claude answers from the page"])
+    Read -- "no: error, HTTP 403/429/5xx,<br/>challenge or empty page" --> Hook["refetch hook adds a note:<br/>call fetch_page for this URL"]
+    Hook --> Client
+
+    subgraph FetchPage ["fetch_page, refetch's MCP tool"]
+        Client["1. Chrome-like client<br/>Chrome TLS fingerprint, about 1 s"]
+        Client -- "challenge or<br/>JavaScript-only page" --> Headless["2. Headless Chrome<br/>your installed Chrome, 15 s at most"]
+        Client -- "page" --> Text["Page text"]
+        Headless -- "page" --> Text
+        Client -- "HTTP 403/429<br/>or error" --> Handoff["Hand-off: why it failed"]
+        Headless -- "still blocked" --> Handoff
+    end
+
+    Text --> Rescued(["Claude answers from the page"])
+    Handoff --> Other(["Claude tries a browser tool<br/>or other sources"])
+```
+
+The hook and `fetch_page` record every step locally, so `refetch stats` can
+show how often each path was taken. Step by step:
+
 1. WebFetch runs as usual. refetch only reacts after a failed read, or after
    a "successful" read that is really an error page, challenge or empty
    JavaScript shell.
