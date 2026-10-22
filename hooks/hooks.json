@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/refetch\" hook SessionStart", "timeout": 120 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/refetch\" hook PreToolUse", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "WebFetch|mcp__plugin_context-mode_context-mode__ctx_fetch_and_index|mcp__plugin_refetch_refetch__.*",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/refetch\" hook PostToolUse", "timeout": 90 }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "WebFetch|mcp__plugin_context-mode_context-mode__ctx_fetch_and_index|mcp__plugin_refetch_refetch__.*",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/refetch\" hook PostToolUseFailure", "timeout": 90 }
+        ]
+      }
+    ]
+  }
+}

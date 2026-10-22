@@ -1,0 +1,86 @@
+#!/bin/sh
+# refetch plugin shim: runs the refetch binary that matches this plugin's
+# version. Order: $REFETCH_BIN, a refetch elsewhere on PATH (Homebrew) with
+# the exact version, the cached download, then a fresh download from the
+# GitHub release, checked against the sha256 table below.
+set -eu
+first_arg=${1:-}
+
+# Hooks must never break a session, so a hook call exits 0 even when no
+# binary can run; the MCP server and refetch doctor surface the error.
+die() {
+	echo "refetch: $*" >&2
+	[ "$first_arg" = hook ] && exit 0
+	exit 1
+}
+
+self_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+root=$(dirname -- "$self_dir")
+version=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" | head -n 1)
+[ -n "$version" ] || die "no version in $root/.claude-plugin/plugin.json"
+# refetch doctor compares these with the binary it runs.
+export REFETCH_PLUGIN_ROOT="$root" REFETCH_PLUGIN_VERSION="$version"
+
+if [ -n "${REFETCH_BIN:-}" ]; then
+	exec "$REFETCH_BIN" "$@"
+fi
+
+case $(uname -s) in
+Darwin) os=darwin ;;
+Linux) os=linux ;;
+*) die "$(uname -s) is not supported yet (macOS and Linux only); set REFETCH_BIN to a refetch binary" ;;
+esac
+case $(uname -m) in
+arm64 | aarch64) arch=arm64 ;;
+x86_64 | amd64) arch=amd64 ;;
+*) die "$(uname -m) is not supported; set REFETCH_BIN to a refetch binary" ;;
+esac
+
+# A Homebrew (or other) install with exactly this version wins over a download.
+IFS_SAVED=$IFS
+IFS=:
+for dir in $PATH; do
+	[ -n "$dir" ] && [ "$dir" != "$self_dir" ] && [ -x "$dir/refetch" ] || continue
+	if [ "$("$dir/refetch" version 2>/dev/null)" = "refetch $version" ]; then
+		IFS=$IFS_SAVED
+		exec "$dir/refetch" "$@"
+	fi
+done
+IFS=$IFS_SAVED
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/refetch/$version"
+bin="$cache/refetch"
+if [ ! -x "$bin" ]; then
+	asset="refetch_${version}_${os}_${arch}.tar.gz"
+	want=$(sed -n "/^# BEGIN SHA256/,/^# END SHA256/s/^# \([0-9a-f]\{64\}\)  $asset\$/\1/p" "$0" | head -n 1)
+	[ -n "$want" ] || die "no release binary for version $version ($os/$arch); build it and set REFETCH_BIN"
+	base="${REFETCH_RELEASE_URL:-https://github.com/samgozman/refetch/releases/download}"
+	mkdir -p "$cache"
+	tmp=$(mktemp -d "$cache/.download.XXXXXX")
+	trap 'rm -rf "$tmp"' EXIT
+	url="$base/v$version/$asset"
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL --retry 2 -o "$tmp/$asset" "$url" || die "download failed: $url"
+	elif command -v wget >/dev/null 2>&1; then
+		wget -q -O "$tmp/$asset" "$url" || die "download failed: $url"
+	else
+		die "need curl or wget to download $url"
+	fi
+	if command -v sha256sum >/dev/null 2>&1; then
+		got=$(sha256sum "$tmp/$asset" | cut -d' ' -f1)
+	else
+		got=$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1)
+	fi
+	[ "$got" = "$want" ] || die "checksum mismatch for $asset (got $got, want $want)"
+	tar -xzf "$tmp/$asset" -C "$tmp" refetch || die "no refetch binary in $asset"
+	chmod 755 "$tmp/refetch"
+	mv -f "$tmp/refetch" "$bin" # atomic within the cache directory
+	rm -rf "$tmp"
+	trap - EXIT
+fi
+exec "$bin" "$@"
+
+# sha256 of each release archive, rewritten by the release job for every
+# plugin version ("# <sha256>  <archive>" lines).
+# BEGIN SHA256
+# END SHA256

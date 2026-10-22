@@ -5,11 +5,11 @@ Go 1.27 module `github.com/samgozman/refetch`: one binary that is the
 
 ## Commands
 
-- `make build`: `bin/refetch` (`VERSION=x.y.z` sets the version string)
+- `make build`: `build/refetch` (`VERSION=x.y.z` sets the version string)
 - `make test`: race-enabled unit tests, no network needed
 - `make lint`: `go mod tidy -diff` and golangci-lint (`.golangci.yml`)
 - `make notices`: regenerate `THIRD_PARTY_NOTICES` after any dependency change
-- `REFETCH_DATA=/tmp/r REFETCH_CONFIG=/dev/null bin/refetch get <url>`: try a fetch without touching your real data
+- `REFETCH_DATA=/tmp/r REFETCH_CONFIG=/dev/null build/refetch get <url>`: try a fetch without touching your real data
 
 ## Layout
 

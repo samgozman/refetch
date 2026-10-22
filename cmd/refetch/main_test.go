@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/samgozman/refetch/config"
+	"github.com/samgozman/refetch/fetch"
 )
 
 func TestMCPTool(t *testing.T) {
@@ -85,5 +87,31 @@ func TestRun(t *testing.T) {
 	t.Setenv("REFETCH_MODE", "loud")
 	if code := run(t.Context(), []string{"stats"}, &out, &errOut); code != 1 {
 		t.Errorf("invalid config exit %d", code)
+	}
+}
+
+func TestHandOff(t *testing.T) {
+	cases := []struct {
+		page fetch.Page
+		err  error
+		want []string
+	}{
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeRefused, Status: 403}, Attempts: []fetch.Attempt{{Client: fetch.ClientChromeLike, Outcome: fetch.OutcomeRefused, Status: 403}}},
+			errors.New("refused"), []string{"Tried: Chrome-like client: refused (HTTP 403).", "retrying fetch_page will not help", "Claude in Chrome"}},
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeNeedsJS, Status: 200}}, errors.New("js"), []string{"after JavaScript runs", "Playwright"}},
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeChallenge}}, errors.New("c"), []string{"bot challenge"}},
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeTimeout}}, errors.New("t"), []string{"did not answer in time"}},
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeError, Status: 404}}, errors.New("HTTP 404"), []string{"does not exist (HTTP 404)"}},
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeError, Status: 502}}, errors.New("HTTP 502"), []string{"server failed (HTTP 502)"}},
+		{fetch.Page{Last: fetch.Attempt{Outcome: fetch.OutcomeError}}, errors.New("dial: 10.0.0.1 is not a public address"), []string{"public addresses only"}},
+		{fetch.Page{}, errors.New(`not an http(s) URL: "ftp://x"`), []string{"http and https URLs only"}},
+	}
+	for _, tc := range cases {
+		got := handOff(tc.page, tc.err)
+		for _, w := range tc.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("handOff(%+v) = %q, lacks %q", tc.page.Last, got, w)
+			}
+		}
 	}
 }

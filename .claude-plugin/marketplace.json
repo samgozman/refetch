@@ -1,0 +1,14 @@
+{
+  "name": "refetch",
+  "description": "refetch: takes over when Claude Code's WebFetch fails, with local stats on how often it helped.",
+  "owner": {
+    "name": "Sam Gozman"
+  },
+  "plugins": [
+    {
+      "name": "refetch",
+      "source": "./",
+      "description": "Takes over when WebFetch fails and keeps local stats on how often it helped."
+    }
+  ]
+}

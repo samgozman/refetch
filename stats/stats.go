@@ -81,11 +81,16 @@ var readTools = map[string]bool{
 	"mcp__plugin_context-mode_context-mode__ctx_fetch_and_index": true,
 }
 
+// InlineTool is the tool name recorded for a page the hook fetched itself
+// (mode = "inline"); it counts as a fetch_page call.
+const InlineTool = "refetch:inline"
+
 // IsFetchPage reports whether a tool name is refetch's fetch_page, as a
 // plugin (mcp__plugin_refetch_refetch__fetch_page) or added with claude mcp
-// add (mcp__refetch__fetch_page).
+// add (mcp__refetch__fetch_page), or an inline fetch by the hook.
 func IsFetchPage(tool string) bool {
-	return strings.HasPrefix(tool, "mcp__") && strings.Contains(tool, "refetch") && strings.HasSuffix(tool, "__fetch_page")
+	return tool == InlineTool ||
+		strings.HasPrefix(tool, "mcp__") && strings.Contains(tool, "refetch") && strings.HasSuffix(tool, "__fetch_page")
 }
 
 type fetch struct {

@@ -12,9 +12,9 @@ documentation come with the first release.
 
 ```sh
 make build
-bin/refetch get https://example.com
-claude mcp add refetch -- "$PWD/bin/refetch" mcp
-bin/refetch stats
+build/refetch get https://example.com
+claude mcp add refetch -- "$PWD/build/refetch" mcp
+build/refetch stats
 ```
 
 ## License

@@ -1,5 +1,5 @@
 GO ?= go
-BIN := bin
+BIN := build
 VERSION ?= dev
 
 .PHONY: all build test cover lint fmt tidy notices clean

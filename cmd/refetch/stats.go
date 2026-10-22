@@ -58,6 +58,9 @@ func runStats(ctx context.Context, _ config.Config, args []string, stdout, stder
 		return nil
 	}
 	now := time.Now()
+	if err := st.Rollup(ctx, now.Add(-store.Retention)); err != nil {
+		return err
+	}
 	from := now.Add(-period)
 	calls, err := st.Calls(ctx, from)
 	if err != nil {

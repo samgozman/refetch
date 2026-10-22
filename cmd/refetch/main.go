@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -27,6 +28,8 @@ Usage:
   refetch mcp                 run the fetch_page MCP server on stdio
   refetch get [flags] <url>   fetch one page and show which step won
   refetch stats [flags]       how often refetch saved the day
+  refetch hook <event>        Claude Code hook handler (reads the event JSON on stdin)
+  refetch doctor              check the setup: version, permission, Chrome, other hooks
   refetch version             print the version
 
 Settings: %s (and REFETCH_* environment variables)
@@ -48,6 +51,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	cmd, args := args[0], args[1:]
 	if cmd == "version" || cmd == "--version" {
 		_, _ = fmt.Fprintln(stdout, "refetch", buildVersion())
+		return 0
+	}
+	switch cmd {
+	case "hook":
+		runHook(ctx, args, os.Stdin, stdout, stderr)
+		return 0
+	case "doctor":
+		if err := runDoctor(ctx, stdout); err != nil {
+			_, _ = fmt.Fprintln(stderr, "refetch:", err)
+			return 1
+		}
 		return 0
 	}
 	cfg, err := config.Load()
@@ -94,16 +108,7 @@ type fetcher struct {
 }
 
 func newFetcher(ctx context.Context, cfg config.Config, via string, stderr io.Writer) *fetcher {
-	ua := cfg.UserAgent
-	if ua == "" {
-		ua = "refetch/" + buildVersion()
-	}
-	fr := &fetcher{via: via, f: &fetch.Fetcher{
-		Impersonate:   cfg.Impersonate,
-		RespectRobots: cfg.RespectRobots,
-		UserAgent:     ua,
-		Timeout:       cfg.Timeout.Duration,
-	}}
+	fr := &fetcher{via: via, f: newFetchClient(cfg)}
 	if cfg.Stats {
 		st, err := store.Open(ctx, store.Path(config.DataDir()))
 		if err != nil {
@@ -112,6 +117,16 @@ func newFetcher(ctx context.Context, cfg config.Config, via string, stderr io.Wr
 		fr.st = st
 	}
 	return fr
+}
+
+// newFetchClient is the fetch.Fetcher the settings describe.
+func newFetchClient(cfg config.Config) *fetch.Fetcher {
+	return &fetch.Fetcher{
+		Impersonate:   cfg.Impersonate,
+		RespectRobots: cfg.RespectRobots,
+		UserAgent:     cmp.Or(cfg.UserAgent, "refetch/"+buildVersion()),
+		Timeout:       cfg.Timeout.Duration,
+	}
 }
 
 // get fetches one page and records its attempts under one fetch id.

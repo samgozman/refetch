@@ -108,8 +108,8 @@ PRAGMA user_version = 1;
 // Path is events.db inside dir.
 func Path(dir string) string { return filepath.Join(dir, "events.db") }
 
-// Open opens or creates the database at path, applies the schema and rolls
-// rows older than Retention into the daily table.
+// Open opens or creates the database at path and applies the schema. It
+// stays cheap enough for a hook; callers roll old rows up with Rollup.
 func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -123,10 +123,6 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if err := s.Rollup(ctx, time.Now().Add(-Retention)); err != nil {
-		_ = db.Close()
-		return nil, err
 	}
 	return s, nil
 }

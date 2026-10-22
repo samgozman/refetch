@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -32,6 +33,7 @@ const (
 	OutcomeOK         = "ok"
 	OutcomeRefused    = "refused"    // HTTP 403 or 429
 	OutcomeChallenge  = "challenge"  // HTTP 503 or a bot-challenge page
+	OutcomeNeedsJS    = "needs_js"   // an HTML shell whose content only JavaScript would render
 	OutcomeTimeout    = "timeout"    // the client's time budget ran out
 	OutcomeError      = "error"      // network error, other HTTP status, address refusal
 	OutcomeDisallowed = "disallowed" // robots.txt, only with RespectRobots
@@ -150,6 +152,9 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	case status != http.StatusOK:
 		a.Outcome = OutcomeError
 		err = fmt.Errorf("HTTP %d (%s client)", status, client)
+	case NeedsJS(body, ct):
+		a.Outcome = OutcomeNeedsJS
+		err = fmt.Errorf("page needs JavaScript to show its content (HTTP %d, %s client)", status, client)
 	}
 	if err != nil && a.Err == "" {
 		a.Err = err.Error()
@@ -256,6 +261,37 @@ func Challenge(status int, body []byte) bool {
 	lower := strings.ToLower(string(body))
 	for _, m := range challengeMarkers {
 		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// mountPoint is an empty element a JavaScript framework renders into.
+var mountPoint = regexp.MustCompile(`(?i)<div[^>]+id=["']?(root|app|__next|__nuxt|svelte|main)["']?[^>]*>\s*</div>|<app-root[^>]*>\s*</app-root>`)
+
+// jsNotices are what a page says when it cannot work without JavaScript.
+var jsNotices = []string{
+	"enable javascript", "javascript is required", "requires javascript", "javascript is disabled",
+	"javascript must be enabled", "turn on javascript",
+}
+
+// NeedsJS reports whether an HTML page is a JavaScript-only shell: under
+// about 200 characters of readable text plus an empty mount point or an
+// enable-JavaScript notice.
+func NeedsJS(body []byte, contentType string) bool {
+	if len(body) > 512<<10 || (contentType != "" && !strings.Contains(contentType, "html")) {
+		return false
+	}
+	if len([]rune(Text(body, "text/html"))) >= 200 {
+		return false
+	}
+	if mountPoint.Match(body) {
+		return true
+	}
+	lower := strings.ToLower(string(body))
+	for _, n := range jsNotices {
+		if strings.Contains(lower, n) {
 			return true
 		}
 	}
