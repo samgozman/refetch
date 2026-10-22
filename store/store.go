@@ -114,17 +114,45 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, path: path}
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	db.SetMaxOpenConns(1) // one writer per process; processes share the file through WAL
+	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return s, nil
+	return &Store{db: db, path: path}, nil
+}
+
+// migrate applies the schema unless it is already there. Several processes
+// (hooks and MCP servers of parallel sessions) can create the file at the
+// same moment, and setting up a new file can return SQLITE_BUSY without
+// waiting on busy_timeout, so it retries for up to about two seconds.
+func migrate(ctx context.Context, db *sql.DB) error {
+	var err error
+	for try := range 20 {
+		var v int
+		if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err == nil && v >= 1 {
+			return nil
+		}
+		if err == nil {
+			if _, err = db.ExecContext(ctx, schema); err == nil {
+				return nil
+			}
+		}
+		if !strings.Contains(err.Error(), "SQLITE_BUSY") && !strings.Contains(err.Error(), "database is locked") {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(20+10*try) * time.Millisecond):
+		}
+	}
+	return err
 }
 
 // Close closes the database.

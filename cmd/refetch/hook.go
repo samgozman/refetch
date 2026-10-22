@@ -215,7 +215,7 @@ func detect(in hookInput) []failure {
 			return []failure{{in.Input.URL, "HTTP " + strconv.Itoa(r.Code)}}
 		case r.Bytes < 128<<10 && summaryBlock.MatchString(r.Result):
 			return []failure{{in.Input.URL, "challenge or block page"}}
-		case r.Bytes > 0 && (r.Bytes < 512 || (r.Bytes < 16<<10 && summaryNeedsJS.MatchString(r.Result))):
+		case r.Bytes > 0 && (r.Bytes < 256 || (r.Bytes < 16<<10 && summaryNeedsJS.MatchString(r.Result))):
 			return []failure{{in.Input.URL, "page needs JavaScript"}}
 		}
 		return nil

@@ -2,7 +2,9 @@ package store
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -83,5 +85,29 @@ func TestAttemptsRollupReset(t *testing.T) {
 	}
 	if all, _ = s.Attempts(ctx, time.Time{}); len(all) != 0 {
 		t.Fatalf("after reset = %+v", all)
+	}
+}
+
+func TestConcurrentOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.db")
+	errs := make(chan error, 16)
+	var wg sync.WaitGroup
+	for i := range 16 {
+		wg.Go(func() {
+			s, err := Open(t.Context(), path)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer func() { _ = s.Close() }()
+			errs <- s.RecordAttempt(t.Context(), Attempt{FetchID: strconv.Itoa(i), Via: "mcp", URL: "https://example.com/", Client: "chrome_like", Outcome: "ok"})
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Error(err)
+		}
 	}
 }

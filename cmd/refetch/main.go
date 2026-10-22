@@ -102,13 +102,14 @@ func buildVersion() string {
 
 // fetcher is the shared fetch.Fetcher plus where its attempts are recorded.
 type fetcher struct {
-	f   *fetch.Fetcher
-	st  *store.Store // nil when stats are off or the store could not open
-	via string
+	f      *fetch.Fetcher
+	st     *store.Store // nil when stats are off or the store could not open
+	via    string
+	stderr io.Writer // where recording errors go (the MCP server's log)
 }
 
 func newFetcher(ctx context.Context, cfg config.Config, via string, stderr io.Writer) *fetcher {
-	fr := &fetcher{via: via, f: newFetchClient(cfg)}
+	fr := &fetcher{via: via, f: newFetchClient(cfg), stderr: stderr}
 	if cfg.Stats {
 		st, err := store.Open(ctx, store.Path(config.DataDir()))
 		if err != nil {
@@ -135,10 +136,13 @@ func (fr *fetcher) get(ctx context.Context, url string) (fetch.Page, error) {
 	if fr.st != nil {
 		id := uuid.New().String()
 		for _, a := range p.Attempts {
-			_ = fr.st.RecordAttempt(context.WithoutCancel(ctx), store.Attempt{
+			err := fr.st.RecordAttempt(context.WithoutCancel(ctx), store.Attempt{
 				Time: time.Now(), FetchID: id, Via: fr.via, URL: a.URL, Client: a.Client, Outcome: a.Outcome,
 				Status: a.Status, Bytes: a.Bytes, Duration: a.Duration, Error: a.Err,
 			})
+			if err != nil && fr.stderr != nil {
+				_, _ = fmt.Fprintln(fr.stderr, "refetch: could not record a fetch step:", err)
+			}
 		}
 	}
 	return p, err

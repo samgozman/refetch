@@ -30,6 +30,9 @@ const (
 	webFetchOK = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"WebFetch","tool_use_id":"t4",
 		"tool_input":{"url":"https://docs.example.com/"},
 		"tool_response":{"bytes":48210,"code":200,"codeText":"OK","result":"The guide explains how to install the tool.","durationMs":900,"url":"https://docs.example.com/"}}`
+	webFetchSmall = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"WebFetch","tool_use_id":"t14",
+		"tool_input":{"url":"https://small.example.com/"},
+		"tool_response":{"bytes":313,"code":200,"codeText":"OK","result":"The secret word is apple.","durationMs":40,"url":"https://small.example.com/"}}`
 	webFetchTimeout = `{"session_id":"s1","hook_event_name":"PostToolUseFailure","tool_name":"WebFetch","tool_use_id":"t5",
 		"tool_input":{"url":"https://slow.example.com/"},"error":"timeout of 60000ms exceeded","is_interrupt":false,"duration_ms":60186}`
 	webFetchPre = `{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"WebFetch","tool_use_id":"t6","tool_input":{"url":"https://c.example.com/"}}`
@@ -80,6 +83,7 @@ func TestHookNudges(t *testing.T) {
 		{"WebFetch challenge summary", webFetchChallenge, []string{"challenge or block page"}},
 		{"WebFetch JavaScript shell", webFetchJS, []string{"page needs JavaScript"}},
 		{"WebFetch ok", webFetchOK, nil},
+		{"WebFetch small real page", webFetchSmall, nil},
 		{"WebFetch timeout", webFetchTimeout, []string{"(timeout of 60000ms exceeded)"}},
 		{"WebFetch pre", webFetchPre, nil},
 		{"ctx 403", ctx403, []string{"ctx_fetch_and_index could not read https://c.example.com/ (HTTP 403)", "save: true"}},
@@ -117,7 +121,7 @@ func TestHookNudges(t *testing.T) {
 	checks := map[string]string{
 		"t1": store.CallFailed, "t2": store.CallFailed, "t3": store.CallFailed, "t4": store.CallOK, "t5": store.CallFailed,
 		"t6": store.CallStarted, "t7": store.CallFailed, "t10#0": store.CallOK, "t10#1": store.CallFailed,
-		"t11": store.CallOK, "t12": store.CallFailed,
+		"t11": store.CallOK, "t12": store.CallFailed, "t14": store.CallOK,
 	}
 	for id, want := range checks {
 		if byID[id].Outcome != want {

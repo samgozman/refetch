@@ -119,9 +119,9 @@ func handOff(p fetch.Page, err error) string {
 	case fetch.OutcomeRefused:
 		next = "The site refuses automated readers; retrying fetch_page will not help. " + browserTool
 	case fetch.OutcomeChallenge:
-		next = "The site shows a bot challenge that needs a real browser. " + browserTool
+		next = "The site shows a bot challenge that needs a real browser; retrying fetch_page will not help. " + browserTool
 	case fetch.OutcomeNeedsJS:
-		next = "The page only shows its content after JavaScript runs. " + browserTool
+		next = "The page only shows its content after JavaScript runs; retrying fetch_page will not help. " + browserTool
 	case fetch.OutcomeTimeout:
 		next = "The site did not answer in time. Try once more later, or use other sources."
 	case fetch.OutcomeDisallowed:
