@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func startTestProxy(t *testing.T, dial func(ctx context.Context, network, address string) (net.Conn, error)) *proxy {
@@ -118,5 +119,88 @@ func TestName(t *testing.T) {
 		if got := Name(t.Context(), path); got != want {
 			t.Errorf("Name(%s) = %q, want %q", file, got, want)
 		}
+	}
+}
+
+// TestProxyCloseEndsTunnels: a server that accepts and never answers must
+// not pin tunnels (and their goroutines) after the render ends.
+func TestProxyCloseEndsTunnels(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var held []net.Conn
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			held = append(held, c) // never read, never closed
+		}
+	}()
+	p, err := startProxy(t.Context(), loopbackDial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clients []net.Conn
+	for range 5 {
+		c, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", p.addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clients = append(clients, c)
+		if _, err := io.WriteString(c, "CONNECT "+ln.Addr().String()+" HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("CONNECT: %s", resp.Status)
+		}
+	}
+	done := make(chan struct{})
+	go func() { p.close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("close did not end the open tunnels")
+	}
+	for _, c := range clients {
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if _, err := c.Read(make([]byte, 1)); err == nil {
+			t.Error("a tunnel is still open after close")
+		}
+		_ = c.Close()
+	}
+}
+
+func TestSweepProfiles(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	old, err := newProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := newProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(fresh, "Default", "Preferences")); err != nil || !strings.Contains(string(b), filepath.Join(fresh, "downloads")) {
+		t.Errorf("profile preferences %q, %v", b, err)
+	}
+	long := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	sweepProfiles(time.Hour)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("stale profile kept: %v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("fresh profile removed: %v", err)
 	}
 }

@@ -20,6 +20,12 @@ type proxy struct {
 	dial  func(ctx context.Context, network, address string) (net.Conn, error)
 	plain *http.Transport
 	wg    sync.WaitGroup
+
+	// Tunnels are hijacked, so srv.Close does not end them; close does.
+	mu      sync.Mutex
+	closed  bool
+	conns   map[net.Conn]struct{}
+	tunnels sync.WaitGroup
 }
 
 func startProxy(ctx context.Context, dial func(ctx context.Context, network, address string) (net.Conn, error)) (*proxy, error) {
@@ -37,7 +43,45 @@ func startProxy(ctx context.Context, dial func(ctx context.Context, network, add
 func (p *proxy) close() {
 	_ = p.srv.Close()
 	p.plain.CloseIdleConnections()
+	p.mu.Lock()
+	p.closed = true
+	for c := range p.conns {
+		_ = c.Close()
+	}
+	p.mu.Unlock()
+	p.tunnels.Wait()
 	p.wg.Wait()
+}
+
+// track registers a tunnel's connections, or closes them when the proxy is
+// already closing.
+func (p *proxy) track(conns ...net.Conn) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		return false
+	}
+	if p.conns == nil {
+		p.conns = map[net.Conn]struct{}{}
+	}
+	for _, c := range conns {
+		p.conns[c] = struct{}{}
+	}
+	p.tunnels.Add(1)
+	return true
+}
+
+func (p *proxy) untrack(conns ...net.Conn) {
+	p.mu.Lock()
+	for _, c := range conns {
+		_ = c.Close()
+		delete(p.conns, c)
+	}
+	p.mu.Unlock()
+	p.tunnels.Done()
 }
 
 // ServeHTTP tunnels CONNECT (HTTPS) and forwards plain HTTP requests.
@@ -89,9 +133,11 @@ func (p *proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 		_ = dst.Close()
 		return
 	}
+	if !p.track(src, dst) {
+		return
+	}
+	defer p.untrack(src, dst)
 	if _, err := src.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
-		_ = src.Close()
-		_ = dst.Close()
 		return
 	}
 	var wg sync.WaitGroup
@@ -105,8 +151,6 @@ func (p *proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(src, dst)
 	closeWrite(src)
 	wg.Wait()
-	_ = src.Close()
-	_ = dst.Close()
 }
 
 // closeWrite half-closes a connection so the other side sees EOF while

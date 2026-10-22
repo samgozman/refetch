@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -74,19 +76,23 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer px.close()
-	profile, err := os.MkdirTemp("", "refetch-chrome-")
+	sweepProfiles(time.Hour)
+	profile, err := newProfile()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(profile) }()
 
 	cmd := exec.CommandContext(ctx, chrome, chromeArgs(ctx, chrome, profile, px.addr, rawURL, timeout)...) //nolint:gosec // the user's own Chrome, found by FindChrome or REFETCH_CHROME
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = sysProcAttr()
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // Chrome's helpers too
 	cmd.WaitDelay = 2 * time.Second
 	out := &capped{max: fetch.MaxBytes}
 	cmd.Stdout = out
 	err = cmd.Run()
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // helpers that outlived the browser
+	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil, fmt.Errorf("%w after %s", ErrTimeout, timeout)
 	}
@@ -97,6 +103,46 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, errors.New("headless Chrome returned no page")
 	}
 	return out.buf.Bytes(), nil
+}
+
+// profilePrefix names the throwaway profiles, so a later run can remove the
+// ones a killed refetch left behind.
+const profilePrefix = "refetch-chrome-"
+
+// newProfile makes a throwaway Chrome profile whose downloads land inside
+// it, so they are removed with it.
+func newProfile() (string, error) {
+	profile, err := os.MkdirTemp("", profilePrefix)
+	if err != nil {
+		return "", err
+	}
+	prefs, err := json.Marshal(map[string]any{
+		"download":                   map[string]any{"default_directory": filepath.Join(profile, "downloads"), "prompt_for_download": false},
+		"savefile":                   map[string]any{"default_directory": filepath.Join(profile, "downloads")},
+		"credentials_enable_service": false,
+	})
+	if err == nil {
+		err = os.MkdirAll(filepath.Join(profile, "Default"), 0o700)
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(profile, "Default", "Preferences"), prefs, 0o600)
+	}
+	if err != nil {
+		_ = os.RemoveAll(profile)
+		return "", err
+	}
+	return profile, nil
+}
+
+// sweepProfiles removes throwaway profiles older than age: a refetch killed
+// mid-render (a hook at its timeout) cannot remove its own.
+func sweepProfiles(age time.Duration) {
+	dirs, _ := filepath.Glob(filepath.Join(os.TempDir(), profilePrefix+"*"))
+	for _, d := range dirs {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() && time.Since(fi.ModTime()) > age {
+			_ = os.RemoveAll(d)
+		}
+	}
 }
 
 func chromeArgs(ctx context.Context, chrome, profile, proxy, rawURL string, timeout time.Duration) []string {
