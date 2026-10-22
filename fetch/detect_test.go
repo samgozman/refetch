@@ -14,6 +14,7 @@ func TestDetectFixtures(t *testing.T) {
 		"next-shell.html":           {needsJS: true},
 		"angular-shell.html":        {needsJS: true},
 		"pow-challenge.html":        {needsJS: true},
+		"humanity-check.html":       {challenge: true},
 		"app-shell-login.html":      {needsJS: true},
 		"small-article.html":        {},
 		"tiny-page.html":            {},
@@ -32,6 +33,10 @@ func TestDetectFixtures(t *testing.T) {
 	}
 	if !Challenge(202, nil) {
 		t.Error("an empty 202 to a GET is a challenge")
+	}
+	rendered := []byte(`<html><body><div id="root"><h1>Secret word: elder</h1><p>Rendered after load.</p></div><script>render()</script></body></html>`)
+	if EmptyRendered(rendered) || !EmptyRendered([]byte(`<html><body><div id="root"></div><script>x()</script></body></html>`)) {
+		t.Error("EmptyRendered misclassifies")
 	}
 	if NeedsJS([]byte(`{"id":"root"}`), "application/json") {
 		t.Error("JSON is never a JavaScript shell")

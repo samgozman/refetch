@@ -26,14 +26,24 @@ import (
 )
 
 // Words are the secret words the sessions must report, by path.
-var words = map[string]string{"/ok": "apple", "/403": "banana", "/challenge": "damson", "/js": "elder", "/slow": "fig"}
+var words = map[string]string{"/ok": "apple", "/403": "banana", "/challenge": "damson", "/js": "elder", "/slow": "fig", "/challenge-js": "grape"}
 
 const challenge = `<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>` +
 	`<p>Verifying you are human. This may take a few seconds.</p><div id="challenge-stage"></div>` +
 	`<script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1"></script></body></html>`
 
-const jsShell = `<!doctype html><html><head><title>App</title><script defer src="/static/main.js"></script></head>` +
-	`<body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div></body></html>`
+// jsShell renders its content with JavaScript, so only the headless Chrome
+// step can read it.
+const jsShell = `<!doctype html><html><head><title>App</title></head><body>` +
+	`<noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div>` +
+	`<script>setTimeout(function(){document.getElementById("root").innerHTML=` +
+	`"<article><h1>Secret word: elder</h1><p>Rendered in the browser after the page loaded.</p></article>"},300)</script></body></html>`
+
+// jsChallenge sets a cookie and reloads, like a JavaScript bot check: the
+// HTTP clients get only this page, a browser gets through.
+const jsChallenge = `<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>` +
+	`<p>Verifying you are human. This may take a few seconds.</p>` +
+	`<script>document.cookie="cleared=1; path=/"; setTimeout(function(){location.reload()},300)</script></body></html>`
 
 // real is an ordinary article page of a realistic size (a few KB).
 func real(path, word string) string {
@@ -72,6 +82,12 @@ func main() {
 			http.NotFound(w, r)
 		case r.URL.Path == "/js":
 			_, _ = w.Write([]byte(jsShell))
+		case r.URL.Path == "/challenge-js":
+			if c, err := r.Cookie("cleared"); err == nil && c.Value == "1" {
+				_, _ = w.Write([]byte(real(r.URL.Path, word)))
+				return
+			}
+			_, _ = w.Write([]byte(jsChallenge))
 		case chrome || r.URL.Path == "/ok":
 			_, _ = w.Write([]byte(real(r.URL.Path, word)))
 		case r.URL.Path == "/403":

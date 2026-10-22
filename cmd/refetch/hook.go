@@ -299,7 +299,7 @@ func nudge(tool string, failed []failure) string {
 func (h *hooker) inline(ctx context.Context, in hookInput, failed []failure) string {
 	get := h.fetch
 	if get == nil {
-		fr := &fetcher{via: "hook", st: h.st, f: newFetchClient(h.cfg)}
+		fr := newFetcherWith(h.cfg, h.st, "hook", nil)
 		get = func(ctx context.Context, url string) (string, error) {
 			return fetchPage(ctx, fr, config.DataDir(), fetchInput{URL: url, MaxChars: inlineChars})
 		}

@@ -14,11 +14,12 @@ import (
 	"time"
 
 	"github.com/samgozman/refetch/config"
+	"github.com/samgozman/refetch/render"
 	"github.com/samgozman/refetch/stats"
 	"github.com/samgozman/refetch/store"
 )
 
-func runStats(ctx context.Context, _ config.Config, args []string, stdout, stderr io.Writer) error {
+func runStats(ctx context.Context, cfg config.Config, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("stats", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	since := fs.String("since", "30d", "period to report, like 7d, 12h or 90d")
@@ -74,7 +75,13 @@ func runStats(ctx context.Context, _ config.Config, args []string, stdout, stder
 	if *asJSON {
 		return json.MarshalWrite(stdout, r, jsontext.WithIndentPrefix(""), jsontext.WithIndent("  "))
 	}
-	r.WriteText(stdout, stats.Header{Version: buildVersion(), DataPath: path, Bytes: st.Size()})
+	h := stats.Header{Version: buildVersion(), DataPath: path, Bytes: st.Size(), RenderTimeout: cfg.RenderTimeout.String()}
+	if cfg.Render == "off" {
+		h.Chrome = "render off"
+	} else {
+		h.Chrome = render.Name(ctx, render.FindChrome())
+	}
+	r.WriteText(stdout, h)
 	return nil
 }
 

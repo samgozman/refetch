@@ -16,12 +16,16 @@ var clientNames = map[string]string{
 	"headless":     "headless Chrome",
 }
 
-// Header is the first line's context, outside the report data.
+// Header is context outside the report data.
 type Header struct {
-	Version  string
-	DataPath string
-	Bytes    int64
+	Version       string
+	DataPath      string
+	Bytes         int64
+	Chrome        string // like "Chrome 155"; "" when none was found
+	RenderTimeout string // like "10s"
 }
+
+var triggerNames = map[string]string{"challenge": "challenge", "needs_js": "JS-only"}
 
 // WriteText writes the report as the plain-text table refetch stats prints.
 func (r Report) WriteText(w io.Writer, h Header) {
@@ -44,7 +48,15 @@ func (r Report) WriteText(w io.Writer, h Header) {
 		line(2, "picked up by refetch", r.PickedUp, pct(r.PickedUp, r.Failed, " of failed"))
 		line(3, "resolved", r.Resolved, pct(r.Resolved, r.PickedUp, " of picked up"))
 		for _, c := range sortedKeys(r.ResolvedBy) {
-			line(4, cmp.Or(clientNames[c], c), r.ResolvedBy[c], "")
+			note := ""
+			if c == "headless" {
+				wins := map[string]int{}
+				for t, n := range r.HeadlessWins {
+					wins[cmp.Or(triggerNames[t], t)] = n
+				}
+				note = breakdown(wins)
+			}
+			line(4, cmp.Or(clientNames[c], c), r.ResolvedBy[c], note)
 		}
 		line(3, "still failed", r.StillFailed, breakdown(r.FailedWhy))
 		line(2, "not picked up", r.NotPickedUp, "")
@@ -60,6 +72,18 @@ func (r Report) WriteText(w io.Writer, h Header) {
 		line(0, "Fetches (fetch_page and refetch get)", f.Total, "median "+millis(f.MedianMS))
 		line(1, "ok", f.OK, breakdown(okBy))
 		line(1, "failed", f.Total-f.OK, breakdown(f.FailedBy))
+	}
+
+	if hd := r.Headless; hd.Needed > 0 {
+		p("\nHeadless Chrome step (%s, timeout %s)\n", cmp.Or(h.Chrome, "no Chrome found"), cmp.Or(h.RenderTimeout, "10s"))
+		line(1, "needed", hd.Needed, "")
+		ran := fmt.Sprintf("ok %d · timed out %d · failed %d", hd.OK, hd.TimedOut, hd.Failed)
+		if hd.Ran > 0 {
+			ran += " · median " + millis(hd.MedianMS)
+		}
+		line(1, "ran", hd.Ran, ran)
+		line(1, "skipped", hd.SkippedByCall+hd.SkippedOff+hd.NoChrome,
+			fmt.Sprintf("by call %d · off %d · no Chrome %d", hd.SkippedByCall, hd.SkippedOff, hd.NoChrome))
 	}
 
 	if len(r.Hosts) > 0 {

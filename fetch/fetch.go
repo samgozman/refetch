@@ -248,6 +248,7 @@ var challengeMarkers = []string{
 	"challenge-platform", "cf-browser-verification", "cf_chl_", "<title>just a moment...</title>",
 	"attention required! | cloudflare", "captcha-delivery.com", "px-captcha", "_incapsula_resource",
 	"/_sec/cp_challenge", "enable javascript and cookies to continue",
+	"prove your humanity", // Reddit's verification page, also after JavaScript ran
 }
 
 // Challenge reports whether a response is a bot challenge rather than the
@@ -302,6 +303,13 @@ func NeedsJS(body []byte, contentType string) bool {
 	return false
 }
 
+// EmptyRendered reports whether a DOM that headless Chrome produced still
+// has next to no readable text. Unlike NeedsJS it ignores scripts and mount
+// points, which a rendered page keeps.
+func EmptyRendered(dom []byte) bool {
+	return len([]rune(strings.TrimSpace(Text(dom, "text/html")))) < 20
+}
+
 // Blocked reports whether a response is any anti-bot refusal: HTTP 403 or
 // 429, or a challenge.
 func Blocked(status int, body []byte) bool {
@@ -345,6 +353,12 @@ func (f *Fetcher) allowed(ctx context.Context, rawURL string) bool {
 // dialer refuses every non-public address after DNS resolution, for every
 // connection of both clients.
 var dialer = net.Dialer{Timeout: 10 * time.Second, Control: publicOnly}
+
+// DialContext dials the way both clients do: public addresses only, checked
+// after DNS resolution. The headless Chrome step's proxy dials with it.
+func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return dialer.DialContext(ctx, network, address)
+}
 
 // nonPublic are the IANA special-purpose ranges that are not globally
 // reachable, plus the IPv6 forms whose embedded IPv4 address cannot be

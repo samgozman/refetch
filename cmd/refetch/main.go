@@ -5,8 +5,10 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/samgozman/refetch/config"
 	"github.com/samgozman/refetch/fetch"
+	"github.com/samgozman/refetch/render"
 	"github.com/samgozman/refetch/store"
 )
 
@@ -100,24 +103,40 @@ func buildVersion() string {
 	return version
 }
 
-// fetcher is the shared fetch.Fetcher plus where its attempts are recorded.
+// fetcher is the shared fetch.Fetcher, the headless Chrome step and where
+// their attempts are recorded.
 type fetcher struct {
-	f      *fetch.Fetcher
-	st     *store.Store // nil when stats are off or the store could not open
-	via    string
-	stderr io.Writer // where recording errors go (the MCP server's log)
+	f         *fetch.Fetcher
+	r         renderer     // the headless Chrome step
+	renderOff bool         // render = "off"
+	st        *store.Store // nil when stats are off or the store could not open
+	via       string
+	stderr    io.Writer // where recording errors go (the MCP server's log)
+}
+
+type renderer interface {
+	Render(ctx context.Context, url string) ([]byte, error)
 }
 
 func newFetcher(ctx context.Context, cfg config.Config, via string, stderr io.Writer) *fetcher {
-	fr := &fetcher{via: via, f: newFetchClient(cfg), stderr: stderr}
+	var st *store.Store
 	if cfg.Stats {
-		st, err := store.Open(ctx, store.Path(config.DataDir()))
-		if err != nil {
+		var err error
+		if st, err = store.Open(ctx, store.Path(config.DataDir())); err != nil {
 			_, _ = fmt.Fprintln(stderr, "refetch: stats off for this run:", err)
 		}
-		fr.st = st
 	}
-	return fr
+	return newFetcherWith(cfg, st, via, stderr)
+}
+
+// newFetcherWith builds the fetcher on an already open store (nil = none).
+func newFetcherWith(cfg config.Config, st *store.Store, via string, stderr io.Writer) *fetcher {
+	return &fetcher{
+		f:         newFetchClient(cfg),
+		r:         &render.Renderer{Timeout: cfg.RenderTimeout.Duration},
+		renderOff: cfg.Render == "off",
+		st:        st, via: via, stderr: stderr,
+	}
 }
 
 // newFetchClient is the fetch.Fetcher the settings describe.
@@ -130,9 +149,15 @@ func newFetchClient(cfg config.Config) *fetch.Fetcher {
 	}
 }
 
-// get fetches one page and records its attempts under one fetch id.
-func (fr *fetcher) get(ctx context.Context, url string) (fetch.Page, error) {
+// get fetches one page: the HTTP clients first, then the headless Chrome
+// step when they got a challenge or a JavaScript-only page. allowRender
+// false (fetch_page's render: false) skips that step for this call. All
+// attempts are recorded under one fetch id.
+func (fr *fetcher) get(ctx context.Context, url string, allowRender bool) (fetch.Page, error) {
 	p, err := fr.f.Get(ctx, url)
+	if err != nil && (p.Last.Outcome == fetch.OutcomeChallenge || p.Last.Outcome == fetch.OutcomeNeedsJS) {
+		p, err = fr.renderStep(ctx, url, allowRender, p, err)
+	}
 	if fr.st != nil {
 		id := uuid.New().String()
 		for _, a := range p.Attempts {
@@ -146,6 +171,48 @@ func (fr *fetcher) get(ctx context.Context, url string) (fetch.Page, error) {
 		}
 	}
 	return p, err
+}
+
+// renderStep runs step 2, or records why it did not run. A skipped step
+// leaves p.Last on the HTTP attempt, whose outcome the hand-off explains.
+func (fr *fetcher) renderStep(ctx context.Context, url string, allowRender bool, p fetch.Page, httpErr error) (fetch.Page, error) {
+	a := fetch.Attempt{URL: url, Host: p.Last.Host, Client: render.Client}
+	var dom []byte
+	switch {
+	case fr.renderOff:
+		a.Outcome = render.OutcomeSkippedOff
+	case !allowRender:
+		a.Outcome = render.OutcomeSkippedByCall
+	default:
+		start := time.Now()
+		var err error
+		dom, err = fr.r.Render(ctx, url)
+		a.Duration, a.Bytes = time.Since(start), len(dom)
+		switch {
+		case errors.Is(err, render.ErrNoChrome):
+			a.Outcome = render.OutcomeNoChrome
+		case errors.Is(err, render.ErrTimeout):
+			a.Outcome, a.Err = fetch.OutcomeTimeout, err.Error()
+		case err != nil:
+			a.Outcome, a.Err = fetch.OutcomeError, err.Error()
+		case fetch.Challenge(http.StatusOK, dom):
+			a.Outcome, a.Err = fetch.OutcomeChallenge, "headless Chrome got the challenge page too"
+		case fetch.EmptyRendered(dom):
+			a.Outcome, a.Err = fetch.OutcomeNeedsJS, "the page was still empty after headless Chrome ran its scripts"
+		default:
+			a.Outcome = fetch.OutcomeOK
+		}
+	}
+	p.Attempts = append(p.Attempts, a)
+	switch a.Outcome {
+	case fetch.OutcomeOK:
+		p.Body, p.ContentType, p.Last = dom, "text/html", a
+		return p, nil
+	case render.OutcomeSkippedOff, render.OutcomeSkippedByCall, render.OutcomeNoChrome:
+		return p, httpErr
+	}
+	p.Last = a
+	return p, fmt.Errorf("%w; then %s", httpErr, cmp.Or(a.Err, a.Outcome))
 }
 
 func (fr *fetcher) close() {

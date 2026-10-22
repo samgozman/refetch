@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Compatibility run: the same five claude -p sessions in four setups.
 
-Setups: refetch alone, + RTK default, + RTK posthook, + context-mode. Each
-session asks Claude to read one page of the local test server (e2e/server).
-Pass: every page but the JavaScript-only one ends with its secret word in the
-answer (the JavaScript page needs the headless Chrome step), and refetch
-stats show the expected funnel.
+Setups: refetch alone, + RTK default, + RTK posthook, + context-mode, and
+no-chrome (alone, with REFETCH_CHROME pointing nowhere). Each session asks
+Claude to read one page of the local test server (e2e/server). Pass: every
+page ends with its secret word in the answer; in no-chrome the two pages that
+need the headless Chrome step (js, challenge-js) fail with the skip note.
 
 Usage: python3 e2e/run.py [--model sonnet] [--setups alone,context-mode] [--out DIR]
 Needs claude, go, and rtk for the RTK setups. Costs about 20 sessions.
@@ -21,7 +21,7 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CASES = {"ok": "apple", "403": "banana", "challenge": "damson", "js": "elder", "slow": "fig"}
+CASES = {"ok": "apple", "403": "banana", "challenge": "damson", "js": "elder", "slow": "fig", "challenge-js": "grape"}
 CTX = "mcp__plugin_context-mode_context-mode__"
 ALLOWED = ["WebFetch", "mcp__plugin_refetch_refetch__fetch_page",
            CTX + "ctx_fetch_and_index", CTX + "ctx_index", CTX + "ctx_search", CTX + "ctx_execute_file"]
@@ -44,7 +44,7 @@ def rtk_home(out: pathlib.Path) -> pathlib.Path:
 
 def settings(setup: str, out: pathlib.Path) -> dict:
     rtk = {"type": "command", "command": "rtk hook claude"}
-    if setup == "alone":
+    if setup in ("alone", "no-chrome"):
         return {}
     if setup == "rtk-default":
         return {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [rtk]}]}}
@@ -84,7 +84,7 @@ def session(setup, case, base, env, cfg, out, model):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="sonnet")
-    ap.add_argument("--setups", default="alone,rtk-default,rtk-posthook,context-mode")
+    ap.add_argument("--setups", default="alone,rtk-default,rtk-posthook,context-mode,no-chrome")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     out = pathlib.Path(args.out or tempfile.mkdtemp(prefix="refetch-e2e-"))
@@ -105,6 +105,8 @@ def main():
                 shutil.rmtree(data)
             env = {**os.environ, "REFETCH_BIN": str(build / "refetch-e2e"), "REFETCH_DATA": str(data),
                    "REFETCH_CONFIG": str(out / "none.toml"), "NODE_EXTRA_CA_CERTS": str(ca)}
+            if setup == "no-chrome":
+                env["REFETCH_CHROME"] = str(out / "no-chrome")
             cfg = settings(setup, out)
             with cf.ThreadPoolExecutor(len(CASES)) as pool:
                 results = sorted(pool.map(lambda c: session(setup, c, base, env, cfg, out, args.model), CASES))
@@ -112,13 +114,14 @@ def main():
                                            capture_output=True, text=True).stdout)
             print(f"\n## {setup}")
             for case, tools, ok, answer in results:
-                expect = case != "js"
+                expect = not (setup == "no-chrome" and case in ("js", "challenge-js"))
                 mark = "ok  " if ok == expect else "FAIL"
                 failed |= ok != expect
                 print(f"  {mark} {case:10} answered={ok!s:5} tools={','.join(tools)}")
             keys = ["reads", "ok_first_time", "failed", "picked_up", "resolved", "still_failed", "not_picked_up",
                     "direct_fetch_page", "direct_fetch_page_ok"]
             print("  stats: " + " ".join(f"{k}={st.get(k, 0)}" for k in keys))
+            print(f"         headless={st.get('headless')}")
             print(f"         resolved_by={st.get('resolved_by')} still_failed_by={st.get('still_failed_by')}")
     finally:
         srv.terminate()

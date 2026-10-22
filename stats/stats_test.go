@@ -91,3 +91,47 @@ func equal(a, b Report) bool {
 		a.PickedUp == b.PickedUp && a.Resolved == b.Resolved && a.StillFailed == b.StillFailed &&
 		a.NotPickedUp == b.NotPickedUp && a.Direct == b.Direct && a.DirectOK == b.DirectOK
 }
+
+func TestHeadlessStep(t *testing.T) {
+	t0 := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
+	read := func(s int, u string) store.ToolCall {
+		return store.ToolCall{Time: at(s), SessionID: "s", Tool: "WebFetch", URL: u, Host: "x.com", Outcome: store.CallFailed}
+	}
+	page := func(s int, u, outcome string) store.ToolCall {
+		return store.ToolCall{Time: at(s), SessionID: "s", Tool: fp, URL: u, Host: "x.com", Outcome: outcome}
+	}
+	step := func(s int, id, u, client, outcome string, ms int) store.Attempt {
+		return store.Attempt{Time: at(s), FetchID: id, URL: u, Host: "x.com", Client: client, Outcome: outcome, Duration: time.Duration(ms) * time.Millisecond}
+	}
+	calls := []store.ToolCall{
+		read(0, "https://x.com/js"), page(10, "https://x.com/js", store.CallOK),
+		read(20, "https://x.com/ch"), page(30, "https://x.com/ch", store.CallOK),
+		read(40, "https://x.com/slow"), page(55, "https://x.com/slow", store.CallFailed),
+		read(60, "https://x.com/off"), page(61, "https://x.com/off", store.CallFailed),
+	}
+	attempts := []store.Attempt{
+		step(8, "a", "https://x.com/js", "chrome_like", "needs_js", 300), step(9, "a", "https://x.com/js", "headless", "ok", 2500),
+		step(28, "b", "https://x.com/ch", "chrome_like", "challenge", 200), step(29, "b", "https://x.com/ch", "headless", "ok", 4000),
+		step(54, "c", "https://x.com/slow", "chrome_like", "challenge", 200), step(54, "c", "https://x.com/slow", "headless", "timeout", 10000),
+		step(61, "d", "https://x.com/off", "chrome_like", "needs_js", 200), step(61, "d", "https://x.com/off", "headless", "skipped_by_call", 0),
+	}
+	r := Build(calls, attempts, Options{Since: t0}, at(120))
+	if r.Resolved != 2 || r.ResolvedBy["headless"] != 2 || r.HeadlessWins["needs_js"] != 1 || r.HeadlessWins["challenge"] != 1 {
+		t.Errorf("resolved = %d by %v, wins %v", r.Resolved, r.ResolvedBy, r.HeadlessWins)
+	}
+	if r.FailedWhy["step 2 timed out"] != 1 || r.FailedWhy["step 2 skipped"] != 1 {
+		t.Errorf("still failed by %v", r.FailedWhy)
+	}
+	want := Headless{Needed: 4, Ran: 3, OK: 2, TimedOut: 1, SkippedByCall: 1, MedianMS: 4000}
+	if r.Headless != want {
+		t.Errorf("headless = %+v, want %+v", r.Headless, want)
+	}
+	var buf bytes.Buffer
+	r.WriteText(&buf, Header{Version: "dev", Chrome: "Chrome 155", RenderTimeout: "10s"})
+	for _, s := range []string{"headless Chrome", "JS-only 1", "Headless Chrome step (Chrome 155, timeout 10s)", "ok 2 · timed out 1 · failed 0 · median 4.0 s", "by call 1 · off 0 · no Chrome 0"} {
+		if !strings.Contains(buf.String(), s) {
+			t.Errorf("text lacks %q:\n%s", s, buf.String())
+		}
+	}
+}

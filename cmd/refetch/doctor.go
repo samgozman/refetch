@@ -38,7 +38,7 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	} else {
 		checks = append(checks, configCheck())
 	}
-	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(cfg), env.permissionCheck(), env.hooksCheck())
+	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.permissionCheck(), env.hooksCheck())
 	for _, c := range checks {
 		mark := "✓"
 		if !c.ok {
@@ -90,12 +90,12 @@ func dataCheck(ctx context.Context, cfg config.Config) check {
 	return check{true, "stats", fmt.Sprintf("%s: %d tool calls and %d fetch steps in the last 30 days", path, len(calls), len(attempts))}
 }
 
-func chromeCheck(cfg config.Config) check {
+func chromeCheck(ctx context.Context, cfg config.Config) check {
 	if cfg.Render == "off" {
 		return check{true, "chrome", "headless Chrome step off (render = \"off\")"}
 	}
 	if p := render.FindChrome(); p != "" {
-		return check{true, "chrome", "found " + p}
+		return check{true, "chrome", fmt.Sprintf("%s at %s; headless Chrome step on (timeout %s)", render.Name(ctx, p), p, cfg.RenderTimeout)}
 	}
 	return check{false, "chrome", "no Chrome or Chromium found, so the headless Chrome step is skipped.\n" +
 		"Install Google Chrome, or set REFETCH_CHROME to a Chrome binary."}

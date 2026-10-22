@@ -38,8 +38,11 @@ type Report struct {
 	DirectOK    int            `json:"direct_fetch_page_ok"`
 	TopHosts    []HostCount    `json:"top_hosts,omitempty"` // hosts of picked-up reads
 
-	Fetches Fetches   `json:"fetches"`         // every fetch_page and refetch get, from the attempts table
-	Hosts   []HostRow `json:"hosts,omitempty"` // filled for --by host
+	HeadlessWins map[string]int `json:"headless_wins_by_trigger,omitempty"` // resolved by headless Chrome, by what sent the page there
+
+	Fetches  Fetches   `json:"fetches"`         // every fetch_page and refetch get, from the attempts table
+	Headless Headless  `json:"headless"`        // the headless Chrome step over all fetches
+	Hosts    []HostRow `json:"hosts,omitempty"` // filled for --by host
 }
 
 // Fetches summarizes the attempts table by fetch: what fetch_page (and
@@ -50,6 +53,20 @@ type Fetches struct {
 	OKBy     map[string]int `json:"ok_by,omitempty"`
 	FailedBy map[string]int `json:"failed_by,omitempty"`
 	MedianMS int64          `json:"median_ms"`
+}
+
+// Headless counts the headless Chrome step: needed whenever the HTTP clients
+// got a challenge or a JavaScript-only page, then either ran or was skipped.
+type Headless struct {
+	Needed        int   `json:"needed"`
+	Ran           int   `json:"ran"`
+	OK            int   `json:"ok"`
+	TimedOut      int   `json:"timed_out"`
+	Failed        int   `json:"failed"`
+	SkippedByCall int   `json:"skipped_by_call"`
+	SkippedOff    int   `json:"skipped_off"`
+	NoChrome      int   `json:"no_chrome"`
+	MedianMS      int64 `json:"median_ms"` // of the runs
 }
 
 // HostCount is a host and how often it needed refetch.
@@ -100,6 +117,16 @@ type fetch struct {
 	winner     string
 	why        string
 	durationMS int64
+	headless   string // the headless step's outcome; "" when it was not needed
+	trigger    string // the outcome that sent the page to the headless step
+	headlessMS int64
+	last       string // the last HTTP client outcome
+}
+
+// stepTwoWhy names a failed headless step for the still-failed breakdown.
+var stepTwoWhy = map[string]string{
+	"timeout": "step 2 timed out", "skipped_off": "step 2 skipped", "skipped_by_call": "step 2 skipped",
+	"no_chrome": "step 2 skipped",
 }
 
 // Build computes the report from rows already filtered by time.
@@ -108,7 +135,7 @@ func Build(calls []store.ToolCall, attempts []store.Attempt, opt Options, now ti
 		calls = slices.DeleteFunc(slices.Clone(calls), func(c store.ToolCall) bool { return c.SessionID != opt.Session })
 	}
 	b := builder{
-		r:       Report{From: opt.Since, To: now, ResolvedBy: map[string]int{}, FailedWhy: map[string]int{}},
+		r:       Report{From: opt.Since, To: now, ResolvedBy: map[string]int{}, FailedWhy: map[string]int{}, HeadlessWins: map[string]int{}},
 		hosts:   map[string]*HostRow{},
 		needed:  map[string]int{},
 		fetches: groupFetches(attempts),
@@ -188,6 +215,9 @@ func (b *builder) read(rd store.ToolCall) {
 		b.r.Resolved++
 		b.row(rd.Host).Resolved++
 		b.r.ResolvedBy[cmp.Or(f.winner, "unknown")]++
+		if f.winner == "headless" {
+			b.r.HeadlessWins[f.trigger]++
+		}
 	} else {
 		b.r.StillFailed++
 		b.r.FailedWhy[cmp.Or(f.why, "unknown")]++
@@ -233,6 +263,7 @@ func (b *builder) finish(opt Options) {
 	b.r.TopHosts = b.r.TopHosts[:min(len(b.r.TopHosts), 5)]
 	if opt.Session == "" {
 		b.r.Fetches = summarize(b.fetches)
+		b.r.Headless = headless(b.fetches)
 		for _, f := range b.fetches {
 			b.row(f.host).Fetches++
 		}
@@ -259,9 +290,18 @@ func groupFetches(attempts []store.Attempt) []fetch {
 		f := &out[i]
 		f.end = a.Time
 		f.durationMS += a.Duration.Milliseconds()
-		if a.Outcome == "ok" {
+		if a.Client == "headless" {
+			f.headless, f.trigger, f.headlessMS = a.Outcome, f.last, a.Duration.Milliseconds()
+		} else {
+			f.last = a.Outcome
+		}
+		switch {
+		case a.Outcome == "ok":
 			f.ok, f.winner = true, a.Client
-		} else if !f.ok {
+		case f.ok:
+		case a.Client == "headless":
+			f.why = cmp.Or(stepTwoWhy[a.Outcome], "step 2 failed")
+		default:
 			f.why = a.Outcome
 			if a.Outcome == "error" && a.Status != 0 {
 				f.why = "HTTP " + strconv.Itoa(a.Status)
@@ -301,4 +341,38 @@ func summarize(fetches []fetch) Fetches {
 		s.MedianMS = ds[len(ds)/2]
 	}
 	return s
+}
+
+func headless(fetches []fetch) Headless {
+	var h Headless
+	var ds []int64
+	for _, f := range fetches {
+		switch f.headless {
+		case "":
+			continue
+		case "skipped_by_call":
+			h.SkippedByCall++
+		case "skipped_off":
+			h.SkippedOff++
+		case "no_chrome":
+			h.NoChrome++
+		default:
+			h.Ran++
+			ds = append(ds, f.headlessMS)
+			switch f.headless {
+			case "ok":
+				h.OK++
+			case "timeout":
+				h.TimedOut++
+			default:
+				h.Failed++
+			}
+		}
+		h.Needed++
+	}
+	if len(ds) > 0 {
+		slices.Sort(ds)
+		h.MedianMS = ds[len(ds)/2]
+	}
+	return h
 }
