@@ -100,10 +100,10 @@ jobs:
       # .golangci.yml enables the maxcomments module plugin, so lint with a
       # golangci-lint binary that has it compiled in: install upstream, build
       # build/custom-gcl from .custom-gcl.yml, then run that.
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          install-only: true
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/golangci/golangci-lint/${GOLANGCI_LINT_VERSION}/install.sh" \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
       - name: Build the custom binary
         run: make lint-build
       - name: Lint
