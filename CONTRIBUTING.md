@@ -93,7 +93,7 @@ release-please keeps a release PR open from the conventional commits on
 `main`. Merging it tags the version and creates the GitHub release. The same
 workflow then builds the binaries into that release, with build provenance
 attestations. Last, it commits the new version and checksums onto the tag
-and force-pushes that to the `release` branch. The marketplace installs the
+and merges that into the `release` branch, which only moves forward. The marketplace installs the
 plugin from `release`, so users only ever get released plugin files, and a
 new version string is what Claude Code sees as an update.
 

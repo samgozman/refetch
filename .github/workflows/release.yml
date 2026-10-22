@@ -3,8 +3,8 @@ name: Release
 # On every push to main, release-please keeps a release PR up to date from
 # the conventional commits. Merging that PR tags vX.Y.Z and creates the
 # GitHub release; the same run then builds the binaries into it and, last,
-# commits the new version and checksums onto the tag and pushes that to the
-# `release` branch, which is what the marketplace installs. Tags and pushes
+# commits the new version and checksums onto the tag and merges that into
+# the `release` branch, which is what the marketplace installs. Tags and pushes
 # made with GITHUB_TOKEN start no other workflow, so all three steps live in
 # this one.
 on:
@@ -76,8 +76,8 @@ jobs:
             dist/checksums.txt
 
   # The release branch is the plugin users install, so it moves only after
-  # the binaries it points at are published, and only to this tag plus the
-  # version commit: nothing merged after the tag ships with it.
+  # the binaries it points at are published, and only to this tag's files
+  # plus the version commit: nothing merged after the tag ships with it.
   plugin-version:
     needs: [release-please, binaries]
     runs-on: ubuntu-latest
@@ -96,9 +96,16 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --pattern '*.tar.gz' --dir "$RUNNER_TEMP/release"
           scripts/plugin-version.sh "$VERSION" "$RUNNER_TEMP/release"
           git diff --stat
+      # The release branch only moves forward (its ruleset refuses force
+      # pushes): each version commit is the tag plus the version change,
+      # merged onto the previous release, with the new tree only.
       - name: Commit and push to the release branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "release: plugin v$VERSION"
-          git push --force origin HEAD:refs/heads/release
+          commit=$(git rev-parse HEAD)
+          if git fetch --no-tags --depth=1 origin release; then
+            commit=$(git commit-tree "HEAD^{tree}" -p FETCH_HEAD -p HEAD -m "release: plugin v$VERSION")
+          fi
+          git push origin "${commit}:refs/heads/release"
