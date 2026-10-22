@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/samgozman/refetch/compare/v0.1.0...v0.1.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **doctor:** read the Claude Code profile in CLAUDE_CONFIG_DIR, not always ~/.claude ([298f20b](https://github.com/samgozman/refetch/commit/298f20b12999c8f6798536446da823b9ecc491fc))
+
 ## 0.1.0 (2026-10-22)
 
 
