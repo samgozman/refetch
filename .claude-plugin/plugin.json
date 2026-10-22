@@ -1,6 +1,6 @@
 {
   "name": "refetch",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Takes over when WebFetch fails: reads blocked, challenged and timed-out pages with a Chrome-like client, and keeps local stats on how often it helped.",
   "author": {
     "name": "Sam Gozman"
