@@ -51,7 +51,13 @@ Chrome step, which adds JavaScript-only pages and some challenges.
 
 ## Install
 
-refetch runs on macOS and Linux. In Claude Code 2.1.275 or later:
+refetch runs on macOS and Linux (arm64 and amd64). On Windows, run Claude
+Code inside [WSL](https://learn.microsoft.com/windows/wsl/), where refetch
+uses its Linux build; install Chrome or Chromium inside WSL for the headless
+Chrome step. Native Windows is not supported yet: the plugin's launcher is a
+shell script, and the headless step stops Chrome with Unix process groups.
+
+In Claude Code 2.1.275 or later:
 
 ```text
 /plugin install refetch --marketplace samgozman/refetch

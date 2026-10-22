@@ -28,7 +28,7 @@ fi
 case $(uname -s) in
 Darwin) os=darwin ;;
 Linux) os=linux ;;
-*) die "$(uname -s) is not supported yet (macOS and Linux only); set REFETCH_BIN to a refetch binary" ;;
+*) die "$(uname -s) is not supported yet: refetch runs on macOS and Linux; on Windows, run Claude Code in WSL" ;;
 esac
 case $(uname -m) in
 arm64 | aarch64) arch=arm64 ;;
