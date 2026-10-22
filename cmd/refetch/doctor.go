@@ -33,7 +33,7 @@ type check struct {
 func runDoctor(ctx context.Context, stdout io.Writer) error {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
-	env := claudeEnv{home: home, cwd: cwd}
+	env := claudeEnv{home: home, cwd: cwd, config: cmp.Or(os.Getenv("CLAUDE_CONFIG_DIR"), filepath.Join(home, ".claude"))}
 	checks := []check{versionCheck(), updateCheck(ctx)}
 	cfg, err := config.Load()
 	if err != nil {
@@ -42,7 +42,7 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	} else {
 		checks = append(checks, configCheck())
 	}
-	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.permissionCheck(), env.hooksCheck())
+	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
 	for _, c := range checks {
 		mark := "✓"
 		if !c.ok {
@@ -185,8 +185,18 @@ func chromeCheck(ctx context.Context, cfg config.Config) check {
 		"Install Google Chrome, or set REFETCH_CHROME to a Chrome binary."}
 }
 
-// claudeEnv reads Claude Code's settings and plugin files.
-type claudeEnv struct{ home, cwd string }
+// claudeEnv reads Claude Code's settings and plugin files. config is Claude
+// Code's own config directory: $CLAUDE_CONFIG_DIR when set (a second profile,
+// such as a work one), else ~/.claude.
+type claudeEnv struct{ home, cwd, config string }
+
+// short writes a path under the home directory with ~.
+func (e claudeEnv) short(path string) string {
+	if rest, ok := strings.CutPrefix(path, e.home+string(filepath.Separator)); ok && e.home != "" {
+		return filepath.Join("~", rest)
+	}
+	return path
+}
 
 type hookGroup struct {
 	Matcher string `json:"matcher"`
@@ -229,8 +239,8 @@ type settingsFile struct {
 
 func (e claudeEnv) settingsPaths() []string {
 	return []string{
-		filepath.Join(e.home, ".claude", "settings.json"),
-		filepath.Join(e.home, ".claude", "settings.local.json"),
+		filepath.Join(e.config, "settings.json"),
+		filepath.Join(e.config, "settings.local.json"),
 		filepath.Join(e.cwd, ".claude", "settings.json"),
 		filepath.Join(e.cwd, ".claude", "settings.local.json"),
 	}
@@ -247,6 +257,16 @@ func (e claudeEnv) settings() map[string]settingsFile {
 	return out
 }
 
+// configDirCheck names the Claude Code config the permission and hook
+// checks read, so a second profile is never checked by mistake.
+func (e claudeEnv) configDirCheck() check {
+	detail := e.short(e.config)
+	if os.Getenv("CLAUDE_CONFIG_DIR") != "" {
+		detail += " (from CLAUDE_CONFIG_DIR)"
+	}
+	return check{true, "claude", detail}
+}
+
 func (e claudeEnv) permissionCheck() check {
 	allowed := map[string]bool{
 		toolFetchPage:                    true,
@@ -256,12 +276,12 @@ func (e claudeEnv) permissionCheck() check {
 	for path, s := range e.settings() {
 		for _, rule := range s.Permissions.Allow {
 			if allowed[rule] {
-				return check{true, "permission", "fetch_page is allowed in " + path}
+				return check{true, "permission", "fetch_page is allowed in " + e.short(path)}
 			}
 		}
 	}
 	return check{false, "permission", "fetch_page is not allowed, so every rescue waits on a prompt (and fails under claude -p).\n" +
-		`Add to ~/.claude/settings.json: "permissions": {"allow": ["` + toolFetchPage + `"]}`}
+		"Add to " + e.short(filepath.Join(e.config, "settings.json")) + `: "permissions": {"allow": ["` + toolFetchPage + `"]}`}
 }
 
 // hooksCheck lists other hooks that also run on WebFetch or refetch's tool.
@@ -279,7 +299,7 @@ func (e claudeEnv) hooksCheck() check {
 	settings := e.settings()
 	enabled := map[string]bool{}
 	for _, p := range slices.Sorted(maps.Keys(settings)) {
-		add(strings.Replace(p, e.home, "~", 1), settings[p].Hooks)
+		add(e.short(p), settings[p].Hooks)
 		maps.Copy(enabled, settings[p].EnabledPlugins)
 	}
 	for name, root := range e.plugins() {
@@ -311,7 +331,7 @@ func (e claudeEnv) plugins() map[string]string {
 		} `json:"plugins"`
 	}
 	out := map[string]string{}
-	b, err := os.ReadFile(filepath.Join(e.home, ".claude", "plugins", "installed_plugins.json"))
+	b, err := os.ReadFile(filepath.Join(e.config, "plugins", "installed_plugins.json"))
 	if err != nil || json.Unmarshal(b, &f) != nil {
 		return out
 	}

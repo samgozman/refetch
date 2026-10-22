@@ -113,3 +113,47 @@ func TestMatches(t *testing.T) {
 		}
 	}
 }
+
+// TestDoctorConfigDir: with CLAUDE_CONFIG_DIR (a second Claude Code profile)
+// doctor reads that profile's settings and plugins, not ~/.claude.
+func TestDoctorConfigDir(t *testing.T) {
+	home := t.TempDir()
+	work := filepath.Join(home, ".claude-work")
+	for path, body := range map[string]string{
+		filepath.Join(home, ".claude", "settings.json"): `{"permissions": {"allow": ["mcp__plugin_refetch_refetch__fetch_page"]}}`,
+		filepath.Join(work, "settings.json"):            `{"hooks": {"PostToolUse": [{"matcher": "WebFetch", "hooks": [{"type": "command", "command": "rtk hook posthook"}]}]}}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", work)
+	t.Setenv("REFETCH_DATA", filepath.Join(home, "data"))
+	t.Setenv("REFETCH_CONFIG", filepath.Join(home, "none.toml"))
+	t.Setenv("REFETCH_CHROME", filepath.Join(home, "no-chrome"))
+	project := filepath.Join(home, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	fakeLatestRelease(t, http.StatusOK, `{"tag_name": "v1.0.0"}`)
+	var out bytes.Buffer
+	if err := runDoctor(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"✓ claude       ~/.claude-work (from CLAUDE_CONFIG_DIR)",
+		"! permission   fetch_page is not allowed",
+		"Add to ~/.claude-work/settings.json",
+		"~/.claude-work/settings.json: PostToolUse on WebFetch (RTK)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("doctor output lacks %q:\n%s", want, got)
+		}
+	}
+}
