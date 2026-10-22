@@ -126,7 +126,8 @@ func TestShim(t *testing.T) {
 		t.Errorf("REFETCH_BIN: %q, %v", out, err)
 	}
 
-	// A refetch on PATH with the exact version wins over the cache.
+	// A Homebrew refetch with the exact version wins over the cache; a
+	// relative directory is never tried.
 	brew := filepath.Join(tmp, "brew")
 	if err := os.MkdirAll(brew, 0o755); err != nil {
 		t.Fatal(err)
@@ -135,8 +136,18 @@ func TestShim(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brew, "refetch"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := run([]string{"PATH=" + brew + ":/usr/bin:/bin"}, "stats"); err != nil || out != "brew stats" {
-		t.Errorf("PATH binary: %q, %v", out, err)
+	if out, err := run([]string{"REFETCH_BREW_DIRS=" + brew}, "stats"); err != nil || out != "brew stats" {
+		t.Errorf("Homebrew binary: %q, %v", out, err)
+	}
+	rel, err := filepath.Rel(tmp, brew)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(shim, "version")
+	cmd.Dir = tmp
+	cmd.Env = []string{"PATH=" + rel + ":/usr/bin:/bin", "REFETCH_BREW_DIRS=" + rel, "HOME=" + tmp, "XDG_CACHE_HOME=" + filepath.Join(tmp, "cache")}
+	if out, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "refetch "+version {
+		t.Errorf("relative dirs must be skipped: %q, %v", out, err)
 	}
 
 	// A wrong checksum refuses the download; a hook call still exits 0.
@@ -144,7 +155,7 @@ func TestShim(t *testing.T) {
 	writePluginRoot(t, bad, version, strings.Repeat("0", 64)+"  "+asset)
 	badShim := filepath.Join(bad, "bin", "refetch")
 	cache2 := "XDG_CACHE_HOME=" + filepath.Join(tmp, "cache2")
-	cmd := exec.Command(badShim, "version")
+	cmd = exec.Command(badShim, "version")
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + tmp, cache2, "REFETCH_RELEASE_URL=" + srv.URL}
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "checksum mismatch") {
 		t.Errorf("bad checksum: %q, %v", out, err)

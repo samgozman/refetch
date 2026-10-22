@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -33,7 +34,7 @@ var chromeHeaders = fhttp.Header{
 func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, []byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(),
+	opts := []tlsclient.HttpClientOption{
 		tlsclient.WithClientProfile(profiles.Chrome_150),
 		tlsclient.WithTimeoutSeconds(int(timeout.Seconds())),
 		tlsclient.WithDialer(dialer),
@@ -42,7 +43,11 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, 
 		tlsclient.WithCustomRedirectFunc(func(req *fhttp.Request, via []*fhttp.Request) error {
 			return checkRedirect(req.URL, len(via))
 		}),
-	)
+	}
+	if e2eLocal {
+		opts = append(opts, tlsclient.WithInsecureSkipVerify())
+	}
+	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), opts...)
 	if err != nil {
 		return 0, nil, "", err
 	}
@@ -62,7 +67,7 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, 
 }
 
 var plainClient = &http.Client{
-	Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext},
+	Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext, TLSClientConfig: &tls.Config{InsecureSkipVerify: e2eLocal}}, // InsecureSkipVerify is true only in the e2e build
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return checkRedirect(req.URL, len(via))
 	},

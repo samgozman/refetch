@@ -1,8 +1,8 @@
 #!/bin/sh
 # refetch plugin shim: runs the refetch binary that matches this plugin's
-# version. Order: $REFETCH_BIN, a refetch elsewhere on PATH (Homebrew) with
-# the exact version, the cached download, then a fresh download from the
-# GitHub release, checked against the sha256 table below.
+# version. Order: $REFETCH_BIN, a Homebrew refetch with the exact version,
+# the cached download, then a fresh download from the GitHub release,
+# checked against the sha256 table below.
 set -eu
 first_arg=${1:-}
 
@@ -36,17 +36,17 @@ x86_64 | amd64) arch=amd64 ;;
 *) die "$(uname -m) is not supported; set REFETCH_BIN to a refetch binary" ;;
 esac
 
-# A Homebrew (or other) install with exactly this version wins over a download.
-IFS_SAVED=$IFS
-IFS=:
-for dir in $PATH; do
-	[ -n "$dir" ] && [ "$dir" != "$self_dir" ] && [ -x "$dir/refetch" ] || continue
+# A Homebrew install with exactly this version wins over a download. Only
+# the fixed Homebrew locations are tried, never a PATH search: hooks run in
+# the project directory, and a relative PATH entry would run a binary the
+# project ships.
+for dir in ${REFETCH_BREW_DIRS:-/opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin}; do
+	case $dir in /*) ;; *) continue ;; esac
+	[ -x "$dir/refetch" ] || continue
 	if [ "$("$dir/refetch" version 2>/dev/null)" = "refetch $version" ]; then
-		IFS=$IFS_SAVED
 		exec "$dir/refetch" "$@"
 	fi
 done
-IFS=$IFS_SAVED
 
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/refetch/$version"
 bin="$cache/refetch"

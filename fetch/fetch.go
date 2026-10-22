@@ -386,6 +386,9 @@ func isPublic(ip netip.Addr) bool {
 		return false
 	}
 	ip = ip.Unmap()
+	if e2eLocal && ip.IsLoopback() {
+		return true
+	}
 	b := ip.As16()
 	switch {
 	case nat64.Contains(ip):
