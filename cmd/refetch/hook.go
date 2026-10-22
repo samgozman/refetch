@@ -193,6 +193,26 @@ var summaryEmpty = regexp.MustCompile(`(?i)(content|page|response)[^.]{0,40}\b(i
 // ctxErrLine is one failed URL in a ctx_fetch_and_index batch result.
 var ctxErrLine = regexp.MustCompile(`(?m)^- \[err\]\s+(\S+?):\s+(.+)$`)
 
+// httpStatus is a status code in a batch failure reason.
+var httpStatus = regexp.MustCompile(`\bHTTP (\d{3})\b`)
+
+// batchReason reduces a batch failure reason to a fixed category: the line
+// sits in text that also carries page content, so none of its words are
+// quoted to Claude.
+func batchReason(s string) string {
+	if m := httpStatus.FindStringSubmatch(s); m != nil {
+		return "HTTP " + m[1]
+	}
+	low := strings.ToLower(s)
+	switch {
+	case strings.Contains(low, "timeout") || strings.Contains(low, "timed out"):
+		return "timed out"
+	case strings.Contains(low, "enotfound") || strings.Contains(low, "getaddrinfo") || strings.Contains(low, "dns"):
+		return "DNS lookup failed"
+	}
+	return "fetch error"
+}
+
 // ctxSize is the indexed size context-mode reports for one page.
 var ctxSize = regexp.MustCompile(`\((\d+(?:\.\d+)?)KB\)`)
 
@@ -242,7 +262,7 @@ func detect(in hookInput) []failure {
 		var out []failure
 		for _, m := range ctxErrLine.FindAllStringSubmatch(text, -1) {
 			if requested[m[1]] {
-				out = append(out, failure{m[1], oneLine(m[2], reasonChars)})
+				out = append(out, failure{m[1], batchReason(m[2])})
 			}
 		}
 		return out

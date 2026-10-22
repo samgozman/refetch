@@ -18,8 +18,9 @@ injection can choose it. These guarantees are security boundaries:
 - **Hooks never block.** refetch's hooks never deny, rewrite or block a tool
   call, and always exit 0.
 - **Page text is marked untrusted.** `fetch_page` puts page text between two
-  marker lines with a random nonce. Failure reasons that come from a site or
-  another tool reach Claude as one short line.
+  marker lines with a random nonce. A failure reason read from another
+  tool's result reaches Claude as a fixed category (an HTTP status, a
+  timeout), and other error text as one short line.
 - **Local data stays local.** `events.db` (mode 0600) stores URLs without
   their query strings, fragments or user info, in its error text too.
   Nothing is sent anywhere.
