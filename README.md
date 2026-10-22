@@ -3,6 +3,7 @@
 **When Claude Code's WebFetch gets blocked, refetch reads the page.**
 
 [![CI](https://github.com/samgozman/refetch/actions/workflows/ci.yml/badge.svg)](https://github.com/samgozman/refetch/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/samgozman/refetch/graph/badge.svg)](https://codecov.io/gh/samgozman/refetch)
 [![Release](https://img.shields.io/github/v/release/samgozman/refetch)](https://github.com/samgozman/refetch/releases/latest)
 [![Go](https://img.shields.io/github/go-mod/go-version/samgozman/refetch)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)

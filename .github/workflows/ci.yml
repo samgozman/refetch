@@ -37,11 +37,13 @@ jobs:
         run: make build
       - name: Test (fails below the coverage minimum)
         run: make cover-check
-      - name: Keep the coverage report
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # Fork PRs get no secrets; the action then uploads without a token,
+      # which Codecov accepts for public repositories.
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          name: coverage
-          path: coverage.out
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: THIRD_PARTY_NOTICES is current
         run: |
           make notices
