@@ -3,6 +3,7 @@ package fetch
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -175,7 +176,7 @@ func TestIsPublic(t *testing.T) {
 		"192.0.2.1", "192.168.1.1", "198.18.0.1", "203.0.113.5", "224.0.0.1", "240.0.0.1", "255.255.255.255",
 		"::", "::1", "::127.0.0.1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe",
 		"2002:7f00:1::1", "2002:c0a8:101::1", "2001:0:4136:e378::1", "64:ff9b:1::1", "fc00::1", "fd12::1",
-		"fe80::1", "fec0::1", "ff02::1", "2001:db8::1", "100::1",
+		"fe80::1", "fec0::1", "ff02::1", "2001:db8::1", "100::1", "168.63.129.16", "2001:2::1", "3fff::1", "5f00::1",
 		"fd12::1%eth0", "64:ff9b::7f00:1%eth0", "2606:4700::1111%en0",
 	}
 	for _, s := range refused {
@@ -193,5 +194,32 @@ func TestIsPublic(t *testing.T) {
 func TestPublicRefusalSkipsBackup(t *testing.T) {
 	if backupWorthy(errors.New("dial tcp 127.0.0.1:443: 127.0.0.1 is not a public address")) {
 		t.Error("an address refusal must not go to the plain backup")
+	}
+}
+
+func TestOwnAddressRefused(t *testing.T) {
+	old := interfaceAddrs
+	interfaceAddrs = func() ([]net.Addr, error) {
+		return []net.Addr{
+			&net.IPNet{IP: net.ParseIP("93.184.216.34"), Mask: net.CIDRMask(24, 32)},
+			&net.IPNet{IP: net.ParseIP("2606:4700::1111"), Mask: net.CIDRMask(64, 128)},
+		}, nil
+	}
+	local.Lock()
+	local.at = time.Time{}
+	local.Unlock()
+	t.Cleanup(func() {
+		interfaceAddrs = old
+		local.Lock()
+		local.at = time.Time{}
+		local.Unlock()
+	})
+	for _, addr := range []string{"93.184.216.34:8080", "[2606:4700::1111]:6379", "[::ffff:93.184.216.34]:80"} {
+		if err := publicOnly("tcp", addr, nil); err == nil || !strings.Contains(err.Error(), "this machine's own") {
+			t.Errorf("%s: %v", addr, err)
+		}
+	}
+	if err := publicOnly("tcp", "93.184.216.35:443", nil); err != nil {
+		t.Errorf("a neighbour on the same network is public: %v", err)
 	}
 }

@@ -356,16 +356,17 @@ func DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // nonPublic are the IANA special-purpose ranges that are not globally
-// reachable, plus the IPv6 forms whose embedded IPv4 address cannot be
-// checked (IPv4-compatible, Teredo, local-use NAT64).
+// reachable, the IPv6 forms whose embedded IPv4 address cannot be checked
+// (IPv4-compatible, Teredo, local-use NAT64), and Azure's WireServer, a
+// public address only reachable from inside Azure.
 var nonPublic = func() []netip.Prefix {
 	var out []netip.Prefix
 	for _, s := range []string{
 		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
 		"192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15",
-		"198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
-		"::/96", "::1/128", "100::/64", "2001::/32", "2001:db8::/32", "64:ff9b:1::/48",
-		"fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
+		"198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4", "168.63.129.16/32",
+		"::/96", "::1/128", "100::/64", "2001::/32", "2001:2::/48", "2001:db8::/32", "3fff::/20",
+		"5f00::/16", "64:ff9b:1::/48", "fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
 	} {
 		out = append(out, netip.MustParsePrefix(s))
 	}
@@ -389,7 +390,39 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 	if !isPublic(ip) {
 		return fmt.Errorf("%s is not a public address", ip)
 	}
+	if (!e2eLocal || !ip.IsLoopback()) && isLocal(ip) {
+		return fmt.Errorf("%s is not a public address: it is this machine's own", ip)
+	}
 	return nil
+}
+
+// local caches this machine's interface addresses. A public address on an
+// interface (a VPS, a public IPv6 prefix) would otherwise reach services
+// bound to all interfaces that a firewall hides from the outside.
+var local struct {
+	sync.Mutex
+	at    time.Time
+	addrs map[netip.Addr]bool
+}
+
+// interfaceAddrs lists the interface addresses; tests replace it.
+var interfaceAddrs = net.InterfaceAddrs
+
+func isLocal(ip netip.Addr) bool {
+	local.Lock()
+	defer local.Unlock()
+	if time.Since(local.at) > 30*time.Second {
+		if addrs, err := interfaceAddrs(); err == nil {
+			local.addrs = map[netip.Addr]bool{}
+			for _, a := range addrs {
+				if p, err := netip.ParsePrefix(a.String()); err == nil {
+					local.addrs[p.Addr().Unmap().WithZone("")] = true
+				}
+			}
+			local.at = time.Now()
+		}
+	}
+	return local.addrs[ip.Unmap().WithZone("")]
 }
 
 // isPublic reports whether ip is globally reachable, embedded IPv4 included.
