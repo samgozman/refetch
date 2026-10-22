@@ -34,3 +34,6 @@ go.work.sum
 
 # Build output
 /build/
+
+# GoReleaser output
+/dist/

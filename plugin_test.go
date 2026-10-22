@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -164,6 +165,90 @@ func TestShim(t *testing.T) {
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + tmp, cache2, "REFETCH_RELEASE_URL=" + srv.URL}
 	if out, err := cmd.Output(); err != nil || len(out) != 0 {
 		t.Errorf("hook with no binary: stdout %q, %v", out, err)
+	}
+}
+
+// TestPluginVersion runs the release job's script on copies of the real
+// plugin.json and shim.
+func TestPluginVersion(t *testing.T) {
+	script, err := filepath.Abs("scripts/plugin-version.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for _, f := range []string{".claude-plugin/plugin.json", "bin/refetch"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), b, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sums := func(version string, platforms ...string) string {
+		var b strings.Builder
+		for i, p := range platforms {
+			fmt.Fprintf(&b, "%064x  refetch_%s_%s.tar.gz\n", i+1, version, p)
+		}
+		b.WriteString(strings.Repeat("f", 64) + "  refetch_" + version + "_checksums.sig\n")
+		path := filepath.Join(root, "checksums-"+version+".txt")
+		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command(script, args...)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	all := []string{"linux_arm64", "darwin_arm64", "linux_amd64", "darwin_amd64"}
+
+	// A second release replaces the first one's table instead of adding to it.
+	for _, version := range []string{"0.1.0", "v0.2.0"} {
+		v := strings.TrimPrefix(version, "v")
+		if out, err := run(version, sums(v, all...)); err != nil {
+			t.Fatalf("%s: %v\n%s", version, err, out)
+		}
+	}
+	var plugin struct {
+		Version string `json:"version"`
+	}
+	readJSON(t, filepath.Join(root, ".claude-plugin", "plugin.json"), &plugin)
+	if plugin.Version != "0.2.0" {
+		t.Errorf("plugin.json version = %q", plugin.Version)
+	}
+	shim, err := os.ReadFile(filepath.Join(root, "bin", "refetch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, table, _ := strings.Cut(string(shim), "# BEGIN SHA256\n")
+	table, _, _ = strings.Cut(table, "# END SHA256\n")
+	var want strings.Builder
+	for _, p := range []string{"darwin_amd64", "darwin_arm64", "linux_amd64", "linux_arm64"} {
+		fmt.Fprintf(&want, "# %064x  refetch_0.2.0_%s.tar.gz\n", slices.Index(all, p)+1, p)
+	}
+	if table != want.String() {
+		t.Errorf("sha256 table:\n%s\nwant:\n%s", table, want.String())
+	}
+	if fi, err := os.Stat(filepath.Join(root, "bin", "refetch")); err != nil || fi.Mode().Perm()&0o111 == 0 {
+		t.Errorf("shim lost its exec bit: %v", err)
+	}
+
+	// A missing archive or a bad version fails and changes nothing.
+	if out, err := run("0.3.0", sums("0.3.0", all[:3]...)); err == nil || !strings.Contains(out, "no sha256 for refetch_0.3.0_darwin_amd64") {
+		t.Errorf("missing archive: %v\n%s", err, out)
+	}
+	if out, err := run("main", sums("main", all...)); err == nil || !strings.Contains(out, "not a release version") {
+		t.Errorf("bad version: %v\n%s", err, out)
+	}
+	readJSON(t, filepath.Join(root, ".claude-plugin", "plugin.json"), &plugin)
+	if plugin.Version != "0.2.0" {
+		t.Errorf("a failed run changed plugin.json to %q", plugin.Version)
 	}
 }
 

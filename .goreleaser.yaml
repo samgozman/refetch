@@ -1,0 +1,45 @@
+# Release builds: the four binaries the plugin shim can pick, their archives
+# and checksums.txt, uploaded to the GitHub release that release-please
+# created (see .github/workflows/release.yml).
+version: 2
+
+project_name: refetch
+
+before:
+  hooks:
+    - go mod tidy -diff
+
+builds:
+  - main: ./cmd/refetch
+    binary: refetch
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    # The shim downloads refetch_<version>_<os>_<arch>.tar.gz and extracts
+    # the refetch binary from its top level.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - THIRD_PARTY_NOTICES
+
+checksum:
+  name_template: checksums.txt
+
+# release-please writes the release notes from the conventional commits.
+changelog:
+  disable: true
+
+release:
+  mode: keep-existing
+  # A re-run after a partial upload replaces the archives already there;
+  # the plugin-version job reads the new checksums.txt.
+  replace_existing_artifacts: true
