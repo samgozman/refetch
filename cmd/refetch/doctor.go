@@ -83,7 +83,7 @@ var (
 func updateCheck(ctx context.Context) check {
 	current := cmp.Or(os.Getenv("REFETCH_PLUGIN_VERSION"), strings.TrimPrefix(buildVersion(), "v"))
 	cur, ok := minorVersion(current)
-	if !ok {
+	if !ok || current == "0.0.0" { // a checkout of main; only releases set a version
 		return check{true, "updates", "not checked for a development build"}
 	}
 	latest, err := latestRelease(ctx)

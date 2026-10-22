@@ -3,7 +3,8 @@ name: Release
 # On every push to main, release-please keeps a release PR up to date from
 # the conventional commits. Merging that PR tags vX.Y.Z and creates the
 # GitHub release; the same run then builds the binaries into it and, last,
-# commits the new version and checksums into the plugin. Tags and commits
+# commits the new version and checksums onto the tag and pushes that to the
+# `release` branch, which is what the marketplace installs. Tags and pushes
 # made with GITHUB_TOKEN start no other workflow, so all three steps live in
 # this one.
 on:
@@ -41,14 +42,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write # build provenance
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release-please.outputs.tag }}
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+          persist-credentials: false # GoReleaser takes the token from env
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false # no cache restored into a job that can write releases
       - name: Test
         run: make test
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
@@ -58,9 +63,15 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
 
-  # This commit, not the tag, is what Claude Code sees as an update, so it
-  # comes only after the binaries it points at are published.
+  # The release branch is the plugin users install, so it moves only after
+  # the binaries it points at are published, and only to this tag plus the
+  # version commit: nothing merged after the tag ships with it.
   plugin-version:
     needs: [release-please, binaries]
     runs-on: ubuntu-latest
@@ -71,21 +82,17 @@ jobs:
       TAG: ${{ needs.release-please.outputs.tag }}
       VERSION: ${{ needs.release-please.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ needs.release-please.outputs.tag }}
       - name: Write the version and checksums into the plugin
         run: |
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --dir "$RUNNER_TEMP"
-          scripts/plugin-version.sh "$VERSION" "$RUNNER_TEMP/checksums.txt"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --pattern '*.tar.gz' --dir "$RUNNER_TEMP/release"
+          scripts/plugin-version.sh "$VERSION" "$RUNNER_TEMP/release"
           git diff --stat
-      - name: Commit and push
+      - name: Commit and push to the release branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "release: plugin v$VERSION"
-          for attempt in 1 2 3; do
-            git push origin HEAD:main && exit 0
-            git pull --rebase origin main
-          done
-          exit 1
+          git push --force origin HEAD:refs/heads/release

@@ -7,8 +7,14 @@
   "plugins": [
     {
       "name": "refetch",
-      "source": "./",
-      "description": "Takes over when WebFetch fails and keeps local stats on how often it helped."
+      "source": {
+        "source": "github",
+        "repo": "samgozman/refetch",
+        "ref": "release"
+      },
+      "description": "Takes over when WebFetch fails and keeps local stats on how often it helped.",
+      "homepage": "https://github.com/samgozman/refetch",
+      "license": "MIT"
     }
   ]
 }

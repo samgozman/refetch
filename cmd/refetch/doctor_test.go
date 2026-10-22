@@ -87,6 +87,7 @@ func TestUpdateCheck(t *testing.T) {
 		{"1.0.0", "404", `{"message": "Not Found"}`, true, "could not check for a newer release: GitHub answered 404"},
 		{"1.0.0", "200", `{"tag_name": "nightly"}`, true, `could not read the latest release "nightly"`},
 		{"0.0.0-SNAPSHOT-554a66a", "200", `{"tag_name": "v1.0.0"}`, true, "not checked for a development build"},
+		{"0.0.0", "200", `{"tag_name": "v1.0.0"}`, true, "not checked for a development build"},
 	} {
 		code := map[string]int{"200": http.StatusOK, "404": http.StatusNotFound}[tc.status]
 		fakeLatestRelease(t, code, tc.body)

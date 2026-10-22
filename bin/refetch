@@ -1,18 +1,35 @@
 #!/bin/sh
 # refetch plugin shim: runs the refetch binary that matches this plugin's
-# version. Order: $REFETCH_BIN, a Homebrew refetch with the exact version,
-# the cached download, then a fresh download from the GitHub release,
-# checked against the sha256 table below.
+# version. $REFETCH_BIN wins; otherwise the binary comes from this
+# version's GitHub release, cached under ~/.cache/refetch/<version>. The
+# archive is checked against the sha256 table below when it is downloaded,
+# and the cached binary on every run, so a binary changed in the cache
+# never runs.
 set -eu
+umask 077
 first_arg=${1:-}
+tmp=""
 
-# Hooks must never break a session, so a hook call exits 0 even when no
-# binary can run; the MCP server and refetch doctor surface the error.
+# Hooks must never break a session, so a hook call exits 0 whatever
+# happens; the MCP server and refetch doctor surface the error.
+finish() {
+	status=$?
+	[ -n "$tmp" ] && rm -rf "$tmp"
+	[ "$first_arg" = hook ] && exit 0
+	exit "$status"
+}
+trap finish EXIT
 die() {
 	echo "refetch: $*" >&2
-	[ "$first_arg" = hook ] && exit 0
 	exit 1
 }
+
+# Tools come from the system directories only: hooks run in the project
+# directory, and a relative PATH entry would run tools the project ships.
+# The binary still gets the caller's PATH (it looks for Chrome there).
+user_path=${PATH:-}
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
 
 self_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 root=$(dirname -- "$self_dir")
@@ -21,8 +38,19 @@ version=$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*
 # refetch doctor compares these with the binary it runs.
 export REFETCH_PLUGIN_ROOT="$root" REFETCH_PLUGIN_VERSION="$version"
 
+run() {
+	PATH=$user_path
+	export PATH
+	if [ "$first_arg" = hook ]; then
+		"$@" || true
+		exit 0
+	fi
+	trap - EXIT
+	exec "$@"
+}
+
 if [ -n "${REFETCH_BIN:-}" ]; then
-	exec "$REFETCH_BIN" "$@"
+	run "$REFETCH_BIN" "$@"
 fi
 
 case $(uname -s) in
@@ -36,51 +64,57 @@ x86_64 | amd64) arch=amd64 ;;
 *) die "$(uname -m) is not supported; set REFETCH_BIN to a refetch binary" ;;
 esac
 
-# A Homebrew install with exactly this version wins over a download. Only
-# the fixed Homebrew locations are tried, never a PATH search: hooks run in
-# the project directory, and a relative PATH entry would run a binary the
-# project ships.
-for dir in ${REFETCH_BREW_DIRS:-/opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin}; do
-	case $dir in /*) ;; *) continue ;; esac
-	[ -x "$dir/refetch" ] || continue
-	if [ "$("$dir/refetch" version 2>/dev/null)" = "refetch $version" ]; then
-		exec "$dir/refetch" "$@"
+# pinned prints the table's sha256 for a file name.
+pinned() {
+	sed -n "/^# BEGIN SHA256/,/^# END SHA256/s/^# \([0-9a-f]\{64\}\)  $1\$/\1/p" "$self_dir/$(basename -- "$0")" | head -n 1
+}
+sha256() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$1" | cut -d' ' -f1
+	elif command -v openssl >/dev/null 2>&1; then
+		openssl dgst -sha256 -r "$1" | cut -d' ' -f1
+	else
+		shasum -a 256 "$1" | cut -d' ' -f1
 	fi
-done
+}
+
+asset="refetch_${version}_${os}_${arch}"
+want_archive=$(pinned "$asset.tar.gz")
+want_bin=$(pinned "$asset")
+[ -n "$want_archive" ] && [ -n "$want_bin" ] || die "no release binary for version $version ($os/$arch); build it and set REFETCH_BIN"
 
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/refetch/$version"
 bin="$cache/refetch"
-if [ ! -x "$bin" ]; then
-	asset="refetch_${version}_${os}_${arch}.tar.gz"
-	want=$(sed -n "/^# BEGIN SHA256/,/^# END SHA256/s/^# \([0-9a-f]\{64\}\)  $asset\$/\1/p" "$0" | head -n 1)
-	[ -n "$want" ] || die "no release binary for version $version ($os/$arch); build it and set REFETCH_BIN"
-	base="${REFETCH_RELEASE_URL:-https://github.com/samgozman/refetch/releases/download}"
-	mkdir -p "$cache"
-	tmp=$(mktemp -d "$cache/.download.XXXXXX")
-	trap 'rm -rf "$tmp"' EXIT
-	url="$base/v$version/$asset"
-	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 2 -o "$tmp/$asset" "$url" || die "download failed: $url"
-	elif command -v wget >/dev/null 2>&1; then
-		wget -q -O "$tmp/$asset" "$url" || die "download failed: $url"
-	else
-		die "need curl or wget to download $url"
-	fi
-	if command -v sha256sum >/dev/null 2>&1; then
-		got=$(sha256sum "$tmp/$asset" | cut -d' ' -f1)
-	else
-		got=$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1)
-	fi
-	[ "$got" = "$want" ] || die "checksum mismatch for $asset (got $got, want $want)"
-	tar -xzf "$tmp/$asset" -C "$tmp" refetch || die "no refetch binary in $asset"
-	chmod 755 "$tmp/refetch"
-	mv -f "$tmp/refetch" "$bin" # atomic within the cache directory
-	rm -rf "$tmp"
-	trap - EXIT
+if [ -f "$bin" ] && [ "$(sha256 "$bin")" = "$want_bin" ]; then
+	run "$bin" "$@"
 fi
-exec "$bin" "$@"
 
-# sha256 of each release archive, rewritten by the release job for every
-# plugin version ("# <sha256>  <archive>" lines).
+# Missing or changed: download the release archive again.
+mkdir -p "$cache"
+find "$cache" -maxdepth 1 -name '.download.*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+tmp=$(mktemp -d "$cache/.download.XXXXXX")
+base="${REFETCH_RELEASE_URL:-https://github.com/samgozman/refetch/releases/download}"
+url="$base/v$version/$asset.tar.gz"
+if command -v curl >/dev/null 2>&1; then
+	curl -fsSL --retry 2 --connect-timeout 10 --max-time 100 -o "$tmp/archive" "$url" || die "download failed: $url"
+elif command -v wget >/dev/null 2>&1; then
+	wget -q -T 100 -O "$tmp/archive" "$url" || die "download failed: $url"
+else
+	die "need curl or wget to download $url"
+fi
+got=$(sha256 "$tmp/archive")
+[ "$got" = "$want_archive" ] || die "checksum mismatch for $asset.tar.gz (got $got, want $want_archive)"
+tar -xzf "$tmp/archive" -C "$tmp" refetch || die "no refetch binary in $asset.tar.gz"
+got=$(sha256 "$tmp/refetch")
+[ "$got" = "$want_bin" ] || die "checksum mismatch for the refetch binary in $asset.tar.gz (got $got, want $want_bin)"
+chmod 700 "$tmp/refetch"
+mv -f "$tmp/refetch" "$bin" # atomic within the cache directory
+rm -rf "$tmp"
+tmp=""
+run "$bin" "$@"
+
+# sha256 of each release archive and of the refetch binary inside it,
+# rewritten by the release job for every plugin version ("# <sha256>
+# <file>" lines).
 # BEGIN SHA256
 # END SHA256
