@@ -111,3 +111,13 @@ func TestConcurrentOpen(t *testing.T) {
 		}
 	}
 }
+
+func TestFileAndSize(t *testing.T) {
+	s := open(t)
+	if !strings.HasSuffix(s.File(), "events.db") {
+		t.Errorf("File() = %q", s.File())
+	}
+	if s.Size() <= 0 {
+		t.Errorf("Size() = %d for an open store", s.Size())
+	}
+}

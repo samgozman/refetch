@@ -106,7 +106,7 @@ func buildVersion() string {
 // fetcher is the shared fetch.Fetcher, the headless Chrome step and where
 // their attempts are recorded.
 type fetcher struct {
-	f         *fetch.Fetcher
+	f         pageGetter   // the HTTP clients
 	r         renderer     // the headless Chrome step
 	renderOff bool         // render = "off"
 	st        *store.Store // nil when stats are off or the store could not open
@@ -117,6 +117,13 @@ type fetcher struct {
 type renderer interface {
 	Render(ctx context.Context, url string) ([]byte, error)
 }
+
+type pageGetter interface {
+	Get(ctx context.Context, url string) (fetch.Page, error)
+}
+
+// pagesFor builds the HTTP clients for the settings; tests replace it.
+var pagesFor = func(cfg config.Config) pageGetter { return newFetchClient(cfg) }
 
 func newFetcher(ctx context.Context, cfg config.Config, via string, stderr io.Writer) *fetcher {
 	var st *store.Store
@@ -132,7 +139,7 @@ func newFetcher(ctx context.Context, cfg config.Config, via string, stderr io.Wr
 // newFetcherWith builds the fetcher on an already open store (nil = none).
 func newFetcherWith(cfg config.Config, st *store.Store, via string, stderr io.Writer) *fetcher {
 	return &fetcher{
-		f:         newFetchClient(cfg),
+		f:         pagesFor(cfg),
 		r:         &render.Renderer{Timeout: cfg.RenderTimeout.Duration},
 		renderOff: cfg.Render == "off",
 		st:        st, via: via, stderr: stderr,

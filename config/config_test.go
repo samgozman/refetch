@@ -74,3 +74,17 @@ func TestDirs(t *testing.T) {
 		t.Errorf("Path = %s", got)
 	}
 }
+
+func TestDurationText(t *testing.T) {
+	var d Duration
+	if err := d.UnmarshalText([]byte("1m30s")); err != nil {
+		t.Fatal(err)
+	}
+	b, err := d.MarshalText()
+	if err != nil || string(b) != "1m30s" {
+		t.Errorf("MarshalText = %q, %v", b, err)
+	}
+	if err := d.UnmarshalText([]byte("soon")); err == nil {
+		t.Error("UnmarshalText accepted \"soon\"")
+	}
+}
