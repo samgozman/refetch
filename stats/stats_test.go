@@ -57,6 +57,21 @@ func TestFunnel(t *testing.T) {
 		}
 	}
 
+	// context-mode denied WebFetch (no post event): followed by fetch_page it
+	// is a failed read picked up; followed by ctx_fetch_and_index it is not
+	// counted twice; followed by nothing it is not a read.
+	redirect := []store.ToolCall{
+		{Time: at(0), SessionID: "s3", Tool: "WebFetch", URL: "https://g.com/1", Host: "g.com", Outcome: store.CallStarted},
+		{Time: at(1), SessionID: "s3", Tool: fp, URL: "https://g.com/1", Host: "g.com", Outcome: store.CallOK},
+		{Time: at(2), SessionID: "s3", Tool: "WebFetch", URL: "https://h.com/1", Host: "h.com", Outcome: store.CallStarted},
+		{Time: at(2), SessionID: "s3", Tool: "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index", URL: "https://h.com/1", Host: "h.com", Outcome: store.CallOK},
+		{Time: at(3), SessionID: "s3", Tool: "WebFetch", URL: "https://i.com/1", Host: "i.com", Outcome: store.CallStarted},
+	}
+	rr := Build(redirect, nil, Options{Since: t0}, at(60))
+	if rr.Reads != 2 || rr.OKFirst != 1 || rr.Failed != 1 || rr.PickedUp != 1 || rr.Resolved != 1 || rr.Direct != 0 {
+		t.Errorf("redirected reads: %+v", rr)
+	}
+
 	r = Build(calls, attempts, Options{Since: t0, Session: "s2"}, at(60))
 	if r.Reads != 1 || r.Direct != 2 || r.Fetches.Total != 0 {
 		t.Errorf("session filter: %+v", r)

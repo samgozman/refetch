@@ -114,7 +114,7 @@ func Build(calls []store.ToolCall, attempts []store.Attempt, opt Options, now ti
 		fetches: groupFetches(attempts),
 	}
 	sessions := map[string]bool{}
-	var reads []store.ToolCall
+	var reads, started []store.ToolCall
 	for _, c := range calls {
 		if c.SessionID != "" {
 			sessions[c.SessionID] = true
@@ -122,10 +122,14 @@ func Build(calls []store.ToolCall, attempts []store.Attempt, opt Options, now ti
 		switch {
 		case readTools[c.Tool] && (c.Outcome == store.CallOK || c.Outcome == store.CallFailed):
 			reads = append(reads, c)
+		case c.Tool == "WebFetch" && c.Outcome == store.CallStarted:
+			started = append(started, c)
 		case IsFetchPage(c.Tool) && c.Outcome != store.CallStarted:
 			b.pages = append(b.pages, c)
 		}
 	}
+	reads = append(reads, b.redirected(started, reads)...)
+	slices.SortStableFunc(reads, func(x, y store.ToolCall) int { return x.Time.Compare(y.Time) })
 	b.r.Sessions = len(sessions)
 	b.claimed = make([]bool, len(b.pages))
 	for _, rd := range reads {
@@ -188,6 +192,26 @@ func (b *builder) read(rd store.ToolCall) {
 		b.r.StillFailed++
 		b.r.FailedWhy[cmp.Or(f.why, "unknown")]++
 	}
+}
+
+// redirected turns a WebFetch that another hook denied (a PreToolUse with no
+// post event, as context-mode does) into a failed read when Claude went
+// straight to fetch_page for the same URL instead of the tool it was sent to.
+// A denied WebFetch followed by ctx_fetch_and_index is that read instead.
+func (b *builder) redirected(started, reads []store.ToolCall) []store.ToolCall {
+	near := func(c, d store.ToolCall) bool {
+		return c.SessionID == d.SessionID && c.URL == d.URL && !d.Time.Before(c.Time) && d.Time.Sub(c.Time) <= PickupWindow
+	}
+	var out []store.ToolCall
+	for _, c := range started {
+		if slices.ContainsFunc(reads, func(r store.ToolCall) bool { return near(c, r) }) ||
+			!slices.ContainsFunc(b.pages, func(p store.ToolCall) bool { return near(c, p) }) {
+			continue
+		}
+		c.Outcome, c.Error = store.CallFailed, "redirected"
+		out = append(out, c)
+	}
+	return out
 }
 
 // pickup is the index of the first unclaimed fetch_page call for the same
