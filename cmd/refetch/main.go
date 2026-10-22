@@ -191,6 +191,8 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, allowRender bool,
 		switch {
 		case errors.Is(err, render.ErrNoChrome):
 			a.Outcome = render.OutcomeNoChrome
+		case errors.Is(err, render.ErrRoot):
+			a.Outcome = render.OutcomeSkippedRoot
 		case errors.Is(err, render.ErrTimeout):
 			a.Outcome, a.Err = fetch.OutcomeTimeout, err.Error()
 		case err != nil:
@@ -208,7 +210,7 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, allowRender bool,
 	case fetch.OutcomeOK:
 		p.Body, p.ContentType, p.Last = dom, "text/html", a
 		return p, nil
-	case render.OutcomeSkippedOff, render.OutcomeSkippedByCall, render.OutcomeNoChrome:
+	case render.OutcomeSkippedOff, render.OutcomeSkippedByCall, render.OutcomeNoChrome, render.OutcomeSkippedRoot:
 		return p, httpErr
 	}
 	p.Last = a

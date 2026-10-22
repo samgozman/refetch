@@ -153,6 +153,8 @@ func skipNote(p fetch.Page) string {
 			return `headless Chrome step skipped: render = "off" in the refetch settings.`
 		case render.OutcomeSkippedByCall:
 			return "headless Chrome step skipped: this call passed render: false."
+		case render.OutcomeSkippedRoot:
+			return "headless Chrome step skipped: refetch runs as root, and Chrome's sandbox does not run as root."
 		}
 	}
 	return ""

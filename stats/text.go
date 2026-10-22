@@ -82,8 +82,11 @@ func (r Report) WriteText(w io.Writer, h Header) {
 			ran += " · median " + millis(hd.MedianMS)
 		}
 		line(1, "ran", hd.Ran, ran)
-		line(1, "skipped", hd.SkippedByCall+hd.SkippedOff+hd.NoChrome,
-			fmt.Sprintf("by call %d · off %d · no Chrome %d", hd.SkippedByCall, hd.SkippedOff, hd.NoChrome))
+		skipped := fmt.Sprintf("by call %d · off %d · no Chrome %d", hd.SkippedByCall, hd.SkippedOff, hd.NoChrome)
+		if hd.SkippedRoot > 0 {
+			skipped += fmt.Sprintf(" · root %d", hd.SkippedRoot)
+		}
+		line(1, "skipped", hd.SkippedByCall+hd.SkippedOff+hd.NoChrome+hd.SkippedRoot, skipped)
 	}
 
 	if len(r.Hosts) > 0 {

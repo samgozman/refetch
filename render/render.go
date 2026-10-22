@@ -27,6 +27,7 @@ const (
 	OutcomeSkippedOff    = "skipped_off"     // render = "off"
 	OutcomeSkippedByCall = "skipped_by_call" // fetch_page(render: false)
 	OutcomeNoChrome      = "no_chrome"       // no Chrome or Chromium found
+	OutcomeSkippedRoot   = "skipped_root"    // running as root, where Chrome's sandbox cannot run
 )
 
 // DefaultTimeout is render_timeout's default: Chrome start included.
@@ -35,6 +36,7 @@ const DefaultTimeout = 10 * time.Second
 // Errors Render returns.
 var (
 	ErrNoChrome = errors.New("no Chrome or Chromium found")
+	ErrRoot     = errors.New("running as root: headless Chrome needs its sandbox, which does not run as root")
 	ErrTimeout  = errors.New("headless Chrome timed out")
 )
 
@@ -53,6 +55,11 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 	chrome := cmp.Or(r.Chrome, FindChrome())
 	if chrome == "" {
 		return nil, ErrNoChrome
+	}
+	// Rendering untrusted pages without Chrome's sandbox would hand any
+	// renderer exploit root, so the step does not run as root at all.
+	if os.Geteuid() == 0 {
+		return nil, ErrRoot
 	}
 	timeout := cmp.Or(r.Timeout, DefaultTimeout)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -107,9 +114,6 @@ func chromeArgs(ctx context.Context, chrome, profile, proxy, rawURL string, time
 		"--user-agent=" + userAgent(ctx, chrome),
 		"--virtual-time-budget=" + strconv.FormatInt(budget.Milliseconds(), 10),
 		"--dump-dom",
-	}
-	if os.Geteuid() == 0 {
-		args = append(args, "--no-sandbox") // Chrome refuses to run as root otherwise (containers)
 	}
 	if e2eLocal {
 		args = append(args, "--ignore-certificate-errors")

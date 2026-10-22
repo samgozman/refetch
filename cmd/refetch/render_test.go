@@ -39,6 +39,7 @@ func TestRenderStep(t *testing.T) {
 		{"render off", &fakeRenderer{dom: rendered}, true, false, render.OutcomeSkippedOff, false, `render = "off"`},
 		{"render false", &fakeRenderer{dom: rendered}, false, true, render.OutcomeSkippedByCall, false, "render: false"},
 		{"no Chrome", &fakeRenderer{err: render.ErrNoChrome}, false, false, render.OutcomeNoChrome, false, "Chrome not found"},
+		{"root", &fakeRenderer{err: render.ErrRoot}, false, false, render.OutcomeSkippedRoot, false, "runs as root"},
 		{"timeout", &fakeRenderer{err: render.ErrTimeout}, false, false, fetch.OutcomeTimeout, false, ""},
 		{"challenge again", &fakeRenderer{dom: "<html><title>Just a moment...</title><body>challenge-platform</body></html>"}, false, false, fetch.OutcomeChallenge, false, ""},
 	}

@@ -66,6 +66,7 @@ type Headless struct {
 	SkippedByCall int   `json:"skipped_by_call"`
 	SkippedOff    int   `json:"skipped_off"`
 	NoChrome      int   `json:"no_chrome"`
+	SkippedRoot   int   `json:"skipped_root"`
 	MedianMS      int64 `json:"median_ms"` // of the runs
 }
 
@@ -126,7 +127,7 @@ type fetch struct {
 // stepTwoWhy names a failed headless step for the still-failed breakdown.
 var stepTwoWhy = map[string]string{
 	"timeout": "step 2 timed out", "skipped_off": "step 2 skipped", "skipped_by_call": "step 2 skipped",
-	"no_chrome": "step 2 skipped",
+	"no_chrome": "step 2 skipped", "skipped_root": "step 2 skipped",
 }
 
 // Build computes the report from rows already filtered by time.
@@ -356,6 +357,8 @@ func headless(fetches []fetch) Headless {
 			h.SkippedOff++
 		case "no_chrome":
 			h.NoChrome++
+		case "skipped_root":
+			h.SkippedRoot++
 		default:
 			h.Ran++
 			ds = append(ds, f.headlessMS)
