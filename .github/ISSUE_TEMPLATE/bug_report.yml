@@ -1,0 +1,36 @@
+name: Bug or blocked site
+description: refetch failed, misbehaved, or could not read a page
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you asked Claude, what you expected, and what you got.
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Page URL
+      description: The page that failed, if it is about a site. Leave out anything private.
+  - type: textarea
+    id: get
+    attributes:
+      label: Output of `refetch get <url>`
+      description: It prints each step and its outcome on stderr.
+      render: text
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `refetch doctor`
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Claude Code version and OS
+      placeholder: "claude --version: 2.1.308 · macOS 27.0 (arm64)"
+    validations:
+      required: true

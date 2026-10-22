@@ -1,18 +1,57 @@
 # refetch
 
-A Claude Code plugin that takes over when WebFetch cannot read a page:
-HTTP 403 or 429, a "Just a moment..." challenge, a JavaScript-only page or a
-timeout. When a read fails, refetch's hook tells Claude to call refetch's
-`fetch_page` tool for the same URL. `fetch_page` tries a client with a
-Chrome TLS fingerprint first, then your installed Chrome in headless mode
-for challenge and JavaScript-only pages. Local stats show how often it
-helped.
+**When Claude Code's WebFetch gets blocked, refetch reads the page.**
 
-macOS and Linux. Claude Code only.
+[![CI](https://github.com/samgozman/refetch/actions/workflows/ci.yml/badge.svg)](https://github.com/samgozman/refetch/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/samgozman/refetch)](https://github.com/samgozman/refetch/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/samgozman/refetch)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+A Claude Code plugin for the pages WebFetch cannot read: HTTP 403 and 429,
+"Just a moment..." challenges, JavaScript-only pages and timeouts. You don't
+change how you work. When a read fails, refetch steps in on its own and
+Claude gets the page.
+
+```text
+> What does the headline on https://www.indeed.com/ say?
+
+  WebFetch      https://www.indeed.com/  ->  HTTP 403 Forbidden
+  refetch hook  tells Claude to call fetch_page with this URL
+  fetch_page    https://www.indeed.com/  ->  HTTP 200, Chrome-like client
+
+  The headline reads "Your next job starts here".
+```
+
+In a test of 10 everyday prompts, mostly on sites that block bots, Claude read 2
+pages with WebFetch alone and 6 with refetch. That was before the headless
+Chrome step, which adds JavaScript-only pages and some challenges.
+
+```text
+/plugin install refetch --marketplace samgozman/refetch
+```
+
+## Why refetch
+
+- **Automatic.** Hooks catch the failed read and point Claude at refetch in
+  the same turn. No prompt changes, no new habits.
+- **Fast and small.** One Go binary of about 8 MB to download. The first
+  step takes about 1 s. Headless Chrome runs only when a page needs it, and
+  uses the Chrome you already have.
+- **Gets past what stops WebFetch.** A client with Chrome's TLS fingerprint
+  first, then real headless Chrome for challenges and JavaScript-only pages.
+- **Plays well with others.** Works next to
+  [context-mode](https://github.com/mksglu/context-mode) and
+  [RTK](https://github.com/rtk-ai/rtk), and never denies or rewrites a tool
+  call.
+- **Shows its value.** `refetch stats` reports how many reads failed, how
+  many refetch picked up and which step resolved them. All data stays on
+  your machine.
+- **Safe by default.** Public addresses only, one page per call, no
+  crawling, no cookies kept.
 
 ## Install
 
-In Claude Code 2.1.275 or later:
+refetch runs on macOS and Linux. In Claude Code 2.1.275 or later:
 
 ```text
 /plugin install refetch --marketplace samgozman/refetch
@@ -196,6 +235,12 @@ build/refetch doctor
 To run a local build through the plugin, set `REFETCH_BIN` to its path
 before starting Claude Code. `make test` runs the tests, which never touch
 the network, and `make lint` runs the linters.
+
+## Contributing
+
+Bug reports, blocked sites and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the setup and checks, and
+[SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
 ## License
 
