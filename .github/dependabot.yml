@@ -1,0 +1,23 @@
+# Weekly updates for Go modules and the (SHA-pinned) GitHub Actions. After a
+# Go module update, CI fails until THIRD_PARTY_NOTICES is regenerated with
+# `make notices` and committed to the PR.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns: ["*"]
+    commit-message:
+      prefix: fix(deps)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci

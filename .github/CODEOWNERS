@@ -1,0 +1,13 @@
+# Changes to what runs on users' machines, or to how releases are built and
+# published, need the maintainer's review.
+*                       @samgozman
+/bin/                   @samgozman
+/hooks/                 @samgozman
+/.claude-plugin/        @samgozman
+/skills/                @samgozman
+/.github/               @samgozman
+/scripts/               @samgozman
+/.goreleaser.yaml       @samgozman
+/release-please-config.json @samgozman
+/fetch/                 @samgozman
+/render/                @samgozman

@@ -27,8 +27,8 @@ jobs:
     if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: go.mod and go.sum are tidy
@@ -40,7 +40,7 @@ jobs:
       - name: Test (fails below the coverage minimum)
         run: make cover-check
       - name: Keep the coverage report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
           path: coverage.out
@@ -60,16 +60,17 @@ jobs:
       contents: read
       pull-requests: write # to remove the label
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Build
         run: make build
       - name: Test
         run: make test
+      # A fork's token cannot edit labels; a maintainer removes it there.
       - name: Remove the approval label
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -80,7 +81,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Pinned so a new validator rule cannot fail an unrelated PR; bump it
       # on purpose.
       - name: Install Claude Code
@@ -88,13 +89,27 @@ jobs:
       - name: Validate
         run: claude plugin validate . --strict
 
+  vulncheck:
+    name: Vulnerability check
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
   lint:
     name: Lint (golangci-lint + maxcomments)
     if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       # .golangci.yml enables the maxcomments module plugin, so lint with a
