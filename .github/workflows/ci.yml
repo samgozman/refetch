@@ -4,21 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `labeled` starts the approval-gated macOS run (see test-macos).
+    types: [opened, synchronize, reopened, labeled]
+  # Manual runs (Actions → CI → Run workflow) test macOS only.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # macOS runs have their own group so a new push does not cancel them.
+  group: ci-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' || github.event.action == 'labeled') && 'macos' || 'main' }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Test
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: Test (Linux)
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -33,13 +36,39 @@ jobs:
       - name: Test
         run: make test
       - name: THIRD_PARTY_NOTICES is current
-        if: matrix.os == 'ubuntu-latest'
         run: |
           make notices
           git diff --exit-code THIRD_PARTY_NOTICES
 
+  # macOS minutes cost about ten times Linux minutes, so every run needs an
+  # explicit approval: Run workflow in the Actions tab, or the `ci:macos`
+  # label on a PR (removed after the run, so the next one needs it again).
+  test-macos:
+    name: Test (macOS)
+    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'labeled' && github.event.label.name == 'ci:macos')
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      pull-requests: write # to remove the label
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: make build
+      - name: Test
+        run: make test
+      - name: Remove the approval label
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label ci:macos
+
   lint:
     name: Lint
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
