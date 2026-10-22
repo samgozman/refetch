@@ -346,6 +346,9 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 // isPublic reports whether ip is globally reachable, checking the IPv4
 // address inside IPv4-mapped, NAT64 and 6to4 addresses too.
 func isPublic(ip netip.Addr) bool {
+	if ip.Zone() != "" { // Prefix.Contains is false for zoned addresses; a public address has no zone
+		return false
+	}
 	ip = ip.Unmap()
 	b := ip.As16()
 	switch {

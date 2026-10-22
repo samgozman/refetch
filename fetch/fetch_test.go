@@ -176,6 +176,7 @@ func TestIsPublic(t *testing.T) {
 		"::", "::1", "::127.0.0.1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe",
 		"2002:7f00:1::1", "2002:c0a8:101::1", "2001:0:4136:e378::1", "64:ff9b:1::1", "fc00::1", "fd12::1",
 		"fe80::1", "fec0::1", "ff02::1", "2001:db8::1", "100::1",
+		"fd12::1%eth0", "64:ff9b::7f00:1%eth0", "2606:4700::1111%en0",
 	}
 	for _, s := range refused {
 		if isPublic(netip.MustParseAddr(s)) {
