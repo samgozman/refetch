@@ -52,7 +52,7 @@ func Default() Config {
 	return Config{
 		Impersonate:   "always",
 		Render:        "auto",
-		RenderTimeout: Duration{10 * time.Second},
+		RenderTimeout: Duration{15 * time.Second},
 		Timeout:       Duration{20 * time.Second},
 		Stats:         true,
 		Mode:          "nudge",

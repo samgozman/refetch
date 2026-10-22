@@ -31,7 +31,7 @@ const (
 )
 
 // DefaultTimeout is render_timeout's default: Chrome start included.
-const DefaultTimeout = 10 * time.Second
+const DefaultTimeout = 15 * time.Second
 
 // Errors Render returns.
 var (

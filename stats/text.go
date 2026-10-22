@@ -22,7 +22,7 @@ type Header struct {
 	DataPath      string
 	Bytes         int64
 	Chrome        string // like "Chrome 155"; "" when none was found
-	RenderTimeout string // like "10s"
+	RenderTimeout string // like "15s"
 }
 
 var triggerNames = map[string]string{"challenge": "challenge", "needs_js": "JS-only"}
@@ -75,7 +75,7 @@ func (r Report) WriteText(w io.Writer, h Header) {
 	}
 
 	if hd := r.Headless; hd.Needed > 0 {
-		p("\nHeadless Chrome step (%s, timeout %s)\n", cmp.Or(h.Chrome, "no Chrome found"), cmp.Or(h.RenderTimeout, "10s"))
+		p("\nHeadless Chrome step (%s, timeout %s)\n", cmp.Or(h.Chrome, "no Chrome found"), cmp.Or(h.RenderTimeout, "15s"))
 		line(1, "needed", hd.Needed, "")
 		ran := fmt.Sprintf("ok %d · timed out %d · failed %d", hd.OK, hd.TimedOut, hd.Failed)
 		if hd.Ran > 0 {
