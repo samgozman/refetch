@@ -183,6 +183,10 @@ var summaryBlock = regexp.MustCompile(`(?i)just a moment|checking your browser|v
 // summaryNeedsJS matches a summary saying the content needs JavaScript.
 var summaryNeedsJS = regexp.MustCompile(`(?i)(enable|requires?|needs?|without|buil[dt]\w*|generat\w*|populat\w*|load\w*|render\w*|run\w*)[^.]{0,40}javascript`)
 
+// summaryEmpty matches a summary saying the page had no content.
+var summaryEmpty = regexp.MustCompile(`(?i)(content|page|response)[^.]{0,40}\b(is|was|came back|appears( to be)?) (empty|blank)|` +
+	`\b(empty|blank) (page|content|response)|no (readable |visible |actual )?(text |page )?content`)
+
 // ctxErrLine is one failed URL in a ctx_fetch_and_index batch result.
 var ctxErrLine = regexp.MustCompile(`(?m)^- \[err\]\s+(\S+?):\s+(.+)$`)
 
@@ -213,10 +217,14 @@ func detect(in hookInput) []failure {
 		switch {
 		case r.Code >= 400:
 			return []failure{{in.Input.URL, "HTTP " + strconv.Itoa(r.Code)}}
+		case r.Code == 202:
+			return []failure{{in.Input.URL, "HTTP 202, likely a bot challenge"}}
 		case r.Bytes < 128<<10 && summaryBlock.MatchString(r.Result):
 			return []failure{{in.Input.URL, "challenge or block page"}}
 		case r.Bytes > 0 && (r.Bytes < 256 || (r.Bytes < 16<<10 && summaryNeedsJS.MatchString(r.Result))):
 			return []failure{{in.Input.URL, "page needs JavaScript"}}
+		case r.Bytes < 64<<10 && summaryEmpty.MatchString(r.Result):
+			return []failure{{in.Input.URL, "page came back empty"}}
 		}
 		return nil
 	}

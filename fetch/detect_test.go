@@ -13,6 +13,8 @@ func TestDetectFixtures(t *testing.T) {
 		"react-shell.html":          {needsJS: true},
 		"next-shell.html":           {needsJS: true},
 		"angular-shell.html":        {needsJS: true},
+		"pow-challenge.html":        {needsJS: true},
+		"app-shell-login.html":      {needsJS: true},
 		"small-article.html":        {},
 		"tiny-page.html":            {},
 	}
@@ -27,6 +29,9 @@ func TestDetectFixtures(t *testing.T) {
 		if got := !Challenge(200, body) && NeedsJS(body, "text/html; charset=utf-8"); got != want.needsJS {
 			t.Errorf("%s: NeedsJS = %v", name, got)
 		}
+	}
+	if !Challenge(202, nil) {
+		t.Error("an empty 202 to a GET is a challenge")
 	}
 	if NeedsJS([]byte(`{"id":"root"}`), "application/json") {
 		t.Error("JSON is never a JavaScript shell")

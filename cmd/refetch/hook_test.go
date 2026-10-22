@@ -33,6 +33,12 @@ const (
 	webFetchSmall = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"WebFetch","tool_use_id":"t14",
 		"tool_input":{"url":"https://small.example.com/"},
 		"tool_response":{"bytes":313,"code":200,"codeText":"OK","result":"The secret word is apple.","durationMs":40,"url":"https://small.example.com/"}}`
+	webFetch202 = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"WebFetch","tool_use_id":"t15",
+		"tool_input":{"url":"https://waf.example.com/"},
+		"tool_response":{"bytes":3962,"code":202,"codeText":"Accepted","result":"The web page content you provided is empty, so I can't identify a title.","durationMs":1794,"url":"https://waf.example.com/"}}`
+	webFetchEmpty = `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"WebFetch","tool_use_id":"t16",
+		"tool_input":{"url":"https://empty.example.com/"},
+		"tool_response":{"bytes":5100,"code":200,"codeText":"OK","result":"The page appears to be empty; there is no readable content to summarize.","durationMs":900,"url":"https://empty.example.com/"}}`
 	webFetchTimeout = `{"session_id":"s1","hook_event_name":"PostToolUseFailure","tool_name":"WebFetch","tool_use_id":"t5",
 		"tool_input":{"url":"https://slow.example.com/"},"error":"timeout of 60000ms exceeded","is_interrupt":false,"duration_ms":60186}`
 	webFetchPre = `{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"WebFetch","tool_use_id":"t6","tool_input":{"url":"https://c.example.com/"}}`
@@ -84,6 +90,8 @@ func TestHookNudges(t *testing.T) {
 		{"WebFetch JavaScript shell", webFetchJS, []string{"page needs JavaScript"}},
 		{"WebFetch ok", webFetchOK, nil},
 		{"WebFetch small real page", webFetchSmall, nil},
+		{"WebFetch 202 challenge", webFetch202, []string{"HTTP 202, likely a bot challenge"}},
+		{"WebFetch empty summary", webFetchEmpty, []string{"page came back empty"}},
 		{"WebFetch timeout", webFetchTimeout, []string{"(timeout of 60000ms exceeded)"}},
 		{"WebFetch pre", webFetchPre, nil},
 		{"ctx 403", ctx403, []string{"ctx_fetch_and_index could not read https://c.example.com/ (HTTP 403)", "save: true"}},
@@ -135,7 +143,7 @@ func TestHookNudges(t *testing.T) {
 		t.Error("Bash must not be recorded")
 	}
 	r := stats.Build(calls, nil, stats.Options{}, time.Now())
-	if r.Failed != 8 || r.PickedUp != 2 || r.Resolved != 1 || r.StillFailed != 1 {
+	if r.Failed != 10 || r.PickedUp != 2 || r.Resolved != 1 || r.StillFailed != 1 {
 		t.Errorf("funnel from hook rows: %+v", r)
 	}
 }

@@ -6,6 +6,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -250,9 +251,10 @@ var challengeMarkers = []string{
 }
 
 // Challenge reports whether a response is a bot challenge rather than the
-// page: HTTP 503, or a short page carrying a challenge marker.
+// page: HTTP 503, HTTP 202 (AWS WAF answers a GET with an empty 202 and a
+// challenge script), or a short page carrying a challenge marker.
 func Challenge(status int, body []byte) bool {
-	if status == http.StatusServiceUnavailable {
+	if status == http.StatusServiceUnavailable || status == http.StatusAccepted {
 		return true
 	}
 	if len(body) > 256<<10 {
@@ -278,15 +280,17 @@ var jsNotices = []string{
 
 // NeedsJS reports whether an HTML page is a JavaScript-only shell: under
 // about 200 characters of readable text plus an empty mount point or an
-// enable-JavaScript notice.
+// enable-JavaScript notice, or under 100 characters plus a script (an app
+// shell, or a proof-of-work page that solves a puzzle and resubmits).
 func NeedsJS(body []byte, contentType string) bool {
 	if len(body) > 512<<10 || (contentType != "" && !strings.Contains(contentType, "html")) {
 		return false
 	}
-	if len([]rune(Text(body, "text/html"))) >= 200 {
+	text := len([]rune(Text(body, "text/html")))
+	if text >= 200 {
 		return false
 	}
-	if mountPoint.Match(body) {
+	if mountPoint.Match(body) || (text < 100 && bytes.Contains(bytes.ToLower(body), []byte("<script"))) {
 		return true
 	}
 	lower := strings.ToLower(string(body))
