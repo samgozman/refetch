@@ -66,6 +66,19 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label ci:macos
 
+  plugin:
+    name: Plugin validate
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Pinned so a new validator rule cannot fail an unrelated PR; bump it
+      # on purpose.
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.308
+      - name: Validate
+        run: claude plugin validate . --strict
+
   lint:
     name: Lint
     if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
