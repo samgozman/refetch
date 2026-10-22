@@ -1,0 +1,13 @@
+# `golangci-lint custom` (make lint-build) reads this and builds
+# build/custom-gcl: golangci-lint with the module plugins below compiled in.
+# .golangci.yml enables them, so lint with build/custom-gcl, not the stock
+# binary. Keep `version` in sync with GOLANGCI_LINT_VERSION in
+# .github/workflows/ci.yml.
+version: v2.15.0
+name: custom-gcl
+destination: ./build
+
+plugins:
+  - module: github.com/samgozman/maxcomments-lint
+    import: github.com/samgozman/maxcomments-lint/maxcomments
+    version: v0.1.0

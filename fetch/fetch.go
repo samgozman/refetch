@@ -1,8 +1,7 @@
-// Package fetch reads one public web page per call. Every connection goes to
-// a public address only, nothing is crawled and no cookies are kept. By
-// default a client with a Chrome TLS fingerprint goes first and a plain Go
-// client is its backup for the fingerprinting library's own TLS or protocol
-// errors; robots.txt is consulted only when asked.
+// Package fetch reads one public web page per call: public addresses only, no
+// crawling, no cookies. By default a client with a Chrome TLS fingerprint goes
+// first, with a plain Go client as backup for its library's own TLS or
+// protocol errors; robots.txt is consulted only when asked.
 package fetch
 
 import (
@@ -207,9 +206,8 @@ func (f *Fetcher) userAgent() string {
 	return DefaultUserAgent
 }
 
-// backupWorthy reports whether a Chrome-like client error is the kind its
-// library causes (a TLS or HTTP/2 quirk) rather than one the plain client
-// would hit too: timeouts, DNS failures and address refusals are not.
+// backupWorthy reports whether a Chrome-like client error is a TLS or HTTP/2
+// quirk of its library; timeouts, DNS failures and address refusals are not.
 func backupWorthy(err error) bool {
 	if isTimeout(err) {
 		return false
@@ -303,15 +301,13 @@ func NeedsJS(body []byte, contentType string) bool {
 	return false
 }
 
-// EmptyRendered reports whether a DOM that headless Chrome produced still
-// has next to no readable text. Unlike NeedsJS it ignores scripts and mount
-// points, which a rendered page keeps.
+// EmptyRendered reports whether a DOM from headless Chrome has next to no
+// text. Unlike NeedsJS it ignores scripts and mount points, which stay.
 func EmptyRendered(dom []byte) bool {
 	return len([]rune(strings.TrimSpace(Text(dom, "text/html")))) < 20
 }
 
-// Blocked reports whether a response is any anti-bot refusal: HTTP 403 or
-// 429, or a challenge.
+// Blocked reports an anti-bot refusal: HTTP 403 or 429, or a challenge.
 func Blocked(status int, body []byte) bool {
 	return status == http.StatusForbidden || status == http.StatusTooManyRequests || Challenge(status, body)
 }
@@ -350,8 +346,7 @@ func (f *Fetcher) allowed(ctx context.Context, rawURL string) bool {
 	return e.data == nil || e.data.TestAgent(u.RequestURI(), agent)
 }
 
-// dialer refuses every non-public address after DNS resolution, for every
-// connection of both clients.
+// dialer refuses non-public addresses after DNS resolution, for both clients.
 var dialer = net.Dialer{Timeout: 10 * time.Second, Control: publicOnly}
 
 // DialContext dials the way both clients do: public addresses only, checked
@@ -397,8 +392,7 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// isPublic reports whether ip is globally reachable, checking the IPv4
-// address inside IPv4-mapped, NAT64 and 6to4 addresses too.
+// isPublic reports whether ip is globally reachable, embedded IPv4 included.
 func isPublic(ip netip.Addr) bool {
 	if ip.Zone() != "" { // Prefix.Contains is false for zoned addresses; a public address has no zone
 		return false

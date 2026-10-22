@@ -1,3 +1,5 @@
+# Lint with the custom binary that has the maxcomments plugin compiled in:
+#   make lint        (builds build/custom-gcl from .custom-gcl.yml when missing)
 version: "2"
 
 run:
@@ -35,6 +37,7 @@ linters:
     - predeclared
     - gocognit
     - funlen
+    - maxcomments
 
   settings:
     errcheck:
@@ -86,11 +89,23 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+    custom:
+      maxcomments:
+        type: module
+        description: Limits the number of comment lines per function and per file.
+        original-url: github.com/samgozman/maxcomments-lint
+        settings:
+          func:
+            body-lines: 6
+            doc-lines: 12
+          file:
+            ratio: 5
+          ratio-min-lines: 40
 
   exclusions:
     rules:
       - path: _test\.go
-        linters: [funlen, gocognit, forcetypeassert, errchkjson, noctx, gosec, errcheck]
+        linters: [funlen, gocognit, forcetypeassert, errchkjson, noctx, gosec, errcheck, maxcomments]
 
 formatters:
   enable:

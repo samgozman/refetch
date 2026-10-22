@@ -1,8 +1,10 @@
 GO ?= go
 BIN := build
 VERSION ?= dev
+# golangci-lint with the maxcomments plugin compiled in (see .custom-gcl.yml).
+GCL := $(BIN)/custom-gcl
 
-.PHONY: all build test cover lint fmt tidy notices clean
+.PHONY: all build test cover cover-check lint lint-build fmt tidy notices clean
 
 all: lint test build
 
@@ -13,16 +15,29 @@ build:
 test:
 	$(GO) test -race ./...
 
+# -coverpkg credits code that other packages' tests exercise (cmd/refetch
+# drives fetch, render and store). cover-check fails below COVERAGE_MIN.
+COVERAGE_MIN := 85
+
 cover:
-	$(GO) test -race -coverprofile=coverage.out ./...
+	$(GO) test -race -coverpkg=./... -coverprofile=coverage.out ./...
 	$(GO) tool cover -func=coverage.out | tail -1
 
-lint:
-	$(GO) mod tidy -diff
-	golangci-lint run ./...
+cover-check: cover
+	@total=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {print $$3}' | tr -d '%'); \
+	awk "BEGIN { exit !($$total >= $(COVERAGE_MIN)) }" || \
+		{ echo "coverage $$total% is below the $(COVERAGE_MIN)% minimum"; exit 1; }
 
-fmt:
-	golangci-lint fmt ./...
+lint: $(GCL)
+	$(GO) mod tidy -diff
+	$(GCL) run ./...
+
+fmt: $(GCL)
+	$(GCL) fmt ./...
+
+# Needs the stock golangci-lint on PATH; rebuilt when .custom-gcl.yml changes.
+lint-build $(GCL): .custom-gcl.yml
+	golangci-lint custom
 
 tidy:
 	$(GO) mod tidy

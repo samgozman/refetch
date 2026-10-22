@@ -1,7 +1,6 @@
 // Package config loads refetch's settings: defaults, then
 // ~/.config/refetch/config.toml, then REFETCH_* environment variables, so the
-// plugin's hooks, its MCP server and a brew install all read the same
-// switches.
+// plugin's hooks, its MCP server and the CLI read the same switches.
 package config
 
 import (
@@ -46,8 +45,7 @@ func (d *Duration) UnmarshalText(b []byte) error {
 // MarshalText writes the duration as a Go duration string.
 func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
 
-// Default is the configuration with nothing set: everything on, robots.txt
-// off.
+// Default is the configuration with nothing set: everything on, robots off.
 func Default() Config {
 	return Config{
 		Impersonate:   "always",
