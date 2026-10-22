@@ -213,14 +213,37 @@ the sites you read with it.
 These limits are always on, whatever the settings:
 
 - Public addresses only, on every connection and redirect, headless Chrome
-  included. No localhost, private networks or cloud metadata addresses.
-- One page per call. It follows no links and does no crawling.
-- No cookies are kept between calls.
+  included. No localhost, private networks, cloud metadata addresses or this
+  machine's own addresses.
+- One page per call. refetch follows no links and does no crawling. While
+  headless Chrome renders a page, that page's own scripts run for up to
+  `render_timeout` and can make requests to public hosts, as in any browser.
+- No cookies are kept between calls: each render uses a throwaway Chrome
+  profile.
 - Pages are capped at 2 MB.
+
+What the address check cannot know: an internal network that uses public IP
+addresses, or a service that trusts your IP address, looks public to it.
+refetch also ignores `HTTP_PROXY` and `HTTPS_PROXY` on purpose, so it does
+not work where all traffic must go through a corporate proxy. See
+[SECURITY.md](SECURITY.md) for what refetch defends against and what you
+trust when you install it.
 
 robots.txt is not consulted by default, because refetch reads only the one
 URL your session was already sent to. Set `respect_robots = true` to
 consult it.
+
+## Verify a release
+
+Every release archive carries a GitHub build provenance attestation. To check
+that a binary was built by this repo's release workflow:
+
+```sh
+gh attestation verify refetch_<version>_darwin_arm64.tar.gz --repo samgozman/refetch
+```
+
+The plugin's shim also checks each download, and the cached binary on every
+run, against the sha256 values pinned in the plugin.
 
 ## Uninstall
 

@@ -1,20 +1,56 @@
 # Security policy
 
 refetch fetches pages from the internet on Claude's behalf and runs headless
-Chrome, so a few of its guarantees are security boundaries:
+Chrome. The URL it fetches comes from Claude, so a web page or a prompt
+injection can choose it. These guarantees are security boundaries:
 
-- It connects to public addresses only: no loopback, private networks, link
-  local or cloud metadata addresses, on every connection and redirect,
-  headless Chrome included.
-- The plugin shim runs only a binary whose sha256 matches the table pinned
-  in the plugin, or an exact-version Homebrew binary in a fixed directory.
-- Hooks never deny, rewrite or block another tool call.
-- Page text reaches Claude marked as untrusted.
+- **Public addresses only.** No loopback, private, link-local, cloud
+  metadata or other special-purpose addresses, and none of this machine's
+  own interface addresses. The check runs on the resolved address of every
+  connection and redirect, so DNS rebinding cannot get around it. Headless
+  Chrome reaches the network only through a local proxy that applies the
+  same check.
+- **Only pinned binaries run.** The plugin shim downloads the binary for
+  its version from this repo's GitHub release and checks the archive and the
+  binary against the sha256 values pinned in the plugin. It checks the
+  cached binary again on every run. It takes its own tools (`curl`, `tar`,
+  `sha256sum`) from the system directories only.
+- **Hooks never block.** refetch's hooks never deny, rewrite or block a tool
+  call, and always exit 0.
+- **Page text is marked untrusted.** `fetch_page` puts page text between two
+  marker lines with a random nonce. Failure reasons that come from a site or
+  another tool reach Claude as one short line.
+- **Local data stays local.** `events.db` (mode 0600) stores URLs without
+  their query strings, fragments or user info, in its error text too.
+  Nothing is sent anywhere.
 
-If you find a way around any of these, or another vulnerability, please
-report it privately. Use GitHub's
-[private vulnerability reporting](https://github.com/samgozman/refetch/security/advisories/new)
-rather than a public issue. Include the steps to reproduce and the refetch
+## What you trust
+
+- **The release pipeline.** The plugin users install comes from the
+  `release` branch, which only the release workflow writes, after the
+  binaries it points at are published. Each archive has a build provenance
+  attestation (see the README).
+- **Your environment.** `REFETCH_BIN` runs any binary you name, and
+  `REFETCH_CONFIG`, `REFETCH_DATA`, `REFETCH_CHROME` and `XDG_CACHE_HOME`
+  decide what runs and where data goes. A project's `.claude/settings.json`
+  can set environment variables for hooks and MCP servers, so opening a
+  project you don't trust is as risky with refetch as without it.
+- **Pages' own scripts.** While headless Chrome renders a page, the page's
+  JavaScript runs for up to `render_timeout` and can send requests to public
+  hosts from your IP address.
+- **The local proxy.** During a render, a proxy listens on a random port on
+  127.0.0.1. Another process on your machine could use it to reach public
+  addresses for those few seconds; it never reaches anything the address
+  check refuses.
+- **What the address check cannot see.** An internal network on public IP
+  space, or a service that trusts your IP address, looks public.
+
+## Reporting a vulnerability
+
+If you find a way around any of the guarantees above, or another
+vulnerability, please report it privately through GitHub's
+[private vulnerability reporting](https://github.com/samgozman/refetch/security/advisories/new),
+not as a public issue. Include the steps to reproduce and the refetch
 version (`refetch version`).
 
 You can expect a first reply within a week. Fixes go into the next release,

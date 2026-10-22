@@ -57,5 +57,9 @@ fetcher and the stats report. The repo root is also the Claude Code plugin.
 - Don't put a `CLAUDE.md` at the repo root: the root is the plugin, and the
   plugin validator flags it. Claude Code reads this file through
   `.claude/CLAUDE.md`.
-- `version` in `.claude-plugin/plugin.json` and the sha256 table in
-  `bin/refetch` are written by the release job; don't edit them by hand.
+- On `main`, `version` in `.claude-plugin/plugin.json` stays `0.0.0` and
+  the sha256 table in `bin/refetch` stays empty (a test checks it). The
+  release job writes both on the `release` branch, which the marketplace
+  installs from.
+- Text that comes from a site or another tool and reaches Claude outside the
+  page fence goes through `oneLine`.

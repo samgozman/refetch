@@ -83,16 +83,19 @@ for every PR.
 - After a dependency change, run `make notices` and commit
   `THIRD_PARTY_NOTICES`.
 - Update the README when user-facing behavior or settings change.
-- Don't edit `version` in `.claude-plugin/plugin.json` or the sha256 table
-  in `bin/refetch`; the release job writes them.
+- Leave `version` in `.claude-plugin/plugin.json` at `0.0.0` and the sha256
+  table in `bin/refetch` empty. The release job writes both on the `release`
+  branch, and a test fails if `main` carries either.
 
 ## Releases (maintainers)
 
 release-please keeps a release PR open from the conventional commits on
 `main`. Merging it tags the version and creates the GitHub release. The same
-workflow then builds the binaries into that release. Last, it commits the
-new version and checksums into the plugin, which is what Claude Code sees as
-an update.
+workflow then builds the binaries into that release, with build provenance
+attestations. Last, it commits the new version and checksums onto the tag
+and force-pushes that to the `release` branch. The marketplace installs the
+plugin from `release`, so users only ever get released plugin files, and a
+new version string is what Claude Code sees as an update.
 
 ## License
 
