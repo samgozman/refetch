@@ -24,7 +24,9 @@ const (
 	toolCtxFetch  = "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index"
 	toolFetchPage = "mcp__plugin_refetch_refetch__fetch_page"
 	inlineChars   = 8000
-	maxInline     = 3 // pages fetched inline per hook call
+	maxInline     = 3                // pages fetched inline per hook call
+	inlineBudget  = 75 * time.Second // all inline fetches, under the 90 s hook timeout
+	reasonChars   = 160              // a failure reason quoted to Claude
 )
 
 const standingGuidance = "If a web page cannot be read (WebFetch or ctx_fetch_and_index fails, is blocked, " +
@@ -105,6 +107,7 @@ func (h *hooker) handle(ctx context.Context, in hookInput) string {
 		if h.st != nil {
 			h.debug(h.st.Rollup(ctx, h.now.Add(-store.Retention)))
 		}
+		prunePages(config.DataDir(), savedPagesAge)
 		return standingGuidance
 	case "PreToolUse":
 		if isRead(in.Tool) {
@@ -201,7 +204,7 @@ func detect(in hookInput) []failure {
 		var out []failure
 		for _, u := range urls {
 			reason = strings.TrimPrefix(reason, "Failed to fetch "+u+": ")
-			out = append(out, failure{u, cmp.Or(reason, "tool error")})
+			out = append(out, failure{u, cmp.Or(oneLine(reason, reasonChars), "tool error")})
 		}
 		return out
 	}
@@ -230,9 +233,17 @@ func detect(in hookInput) []failure {
 	}
 	text := responseText(in.Response)
 	if len(in.Input.Requests) > 0 {
+		// Only URLs the batch asked for: the result text also carries page
+		// content, which could forge an "[err]" line for any URL.
+		requested := map[string]bool{}
+		for _, u := range urls {
+			requested[u] = true
+		}
 		var out []failure
 		for _, m := range ctxErrLine.FindAllStringSubmatch(text, -1) {
-			out = append(out, failure{m[1], m[2]})
+			if requested[m[1]] {
+				out = append(out, failure{m[1], oneLine(m[2], reasonChars)})
+			}
 		}
 		return out
 	}
@@ -297,6 +308,8 @@ func nudge(tool string, failed []failure) string {
 
 // inline fetches the failed pages in the hook and returns their text.
 func (h *hooker) inline(ctx context.Context, in hookInput, failed []failure) string {
+	ctx, cancel := context.WithTimeout(ctx, inlineBudget)
+	defer cancel()
 	get := h.fetch
 	if get == nil {
 		fr := newFetcherWith(h.cfg, h.st, "hook", nil)
@@ -306,7 +319,7 @@ func (h *hooker) inline(ctx context.Context, in hookInput, failed []failure) str
 	}
 	var b strings.Builder
 	for i, f := range failed {
-		if i == maxInline {
+		if i == maxInline || ctx.Err() != nil {
 			b.WriteString(nudge(in.Tool, failed[i:]))
 			break
 		}
