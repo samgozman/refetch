@@ -38,8 +38,13 @@ checksum:
 changelog:
   disable: true
 
+# release-please creates the release as a draft (with its tag); GoReleaser
+# uploads into that draft and publishes it, so an immutable release is
+# complete when it locks.
 release:
   mode: keep-existing
+  use_existing_draft: true
+  draft: false
   # A re-run after a partial upload replaces the archives already there;
   # the plugin-version job reads the new checksums.txt.
   replace_existing_artifacts: true
