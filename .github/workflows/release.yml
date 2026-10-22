@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # The latest patch release, so builds get the standard library's fixes;
+  # go.mod's `go` line is only the minimum.
+  GO_VERSION: 1.27.x
+
 concurrency:
   group: release
   cancel-in-progress: false
@@ -52,7 +57,8 @@ jobs:
           persist-credentials: false # GoReleaser takes the token from env
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
           cache: false # no cache restored into a job that can write releases
       - name: Test
         run: make test

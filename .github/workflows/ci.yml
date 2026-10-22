@@ -13,6 +13,9 @@ permissions:
   contents: read
 
 env:
+  # The latest patch release, so builds get the standard library's fixes;
+  # go.mod's `go` line is only the minimum.
+  GO_VERSION: 1.27.x
   # Keep in sync with `version` in .custom-gcl.yml.
   GOLANGCI_LINT_VERSION: v2.15.0
 
@@ -30,7 +33,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
       - name: go.mod and go.sum are tidy
         run: go mod tidy -diff
       - name: Vet
@@ -63,7 +67,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
       - name: Build
         run: make build
       - name: Test
@@ -99,7 +104,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
@@ -111,7 +117,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
       # .golangci.yml enables the maxcomments module plugin, so lint with a
       # golangci-lint binary that has it compiled in: install upstream, build
       # build/custom-gcl from .custom-gcl.yml, then run that.
