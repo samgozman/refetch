@@ -302,9 +302,31 @@ func (f *Fetcher) allowed(ctx context.Context, rawURL string) bool {
 	return e.data == nil || e.data.TestAgent(u.RequestURI(), agent)
 }
 
-// dialer refuses loopback, private, link-local, CGNAT and other non-public
-// addresses after DNS resolution, for every connection of both clients.
+// dialer refuses every non-public address after DNS resolution, for every
+// connection of both clients.
 var dialer = net.Dialer{Timeout: 10 * time.Second, Control: publicOnly}
+
+// nonPublic are the IANA special-purpose ranges that are not globally
+// reachable, plus the IPv6 forms whose embedded IPv4 address cannot be
+// checked (IPv4-compatible, Teredo, local-use NAT64).
+var nonPublic = func() []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range []string{
+		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
+		"192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15",
+		"198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+		"::/96", "::1/128", "100::/64", "2001::/32", "2001:db8::/32", "64:ff9b:1::/48",
+		"fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
+	} {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}()
+
+var (
+	nat64     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour = netip.MustParsePrefix("2002::/16")
+)
 
 func publicOnly(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
@@ -315,10 +337,30 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	ip = ip.Unmap()
-	cgnat := netip.MustParsePrefix("100.64.0.0/10")
-	if !ip.IsGlobalUnicast() || ip.IsPrivate() || cgnat.Contains(ip) {
+	if !isPublic(ip) {
 		return fmt.Errorf("%s is not a public address", ip)
 	}
 	return nil
+}
+
+// isPublic reports whether ip is globally reachable, checking the IPv4
+// address inside IPv4-mapped, NAT64 and 6to4 addresses too.
+func isPublic(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	b := ip.As16()
+	switch {
+	case nat64.Contains(ip):
+		return isPublic(netip.AddrFrom4([4]byte(b[12:16])))
+	case sixToFour.Contains(ip):
+		return isPublic(netip.AddrFrom4([4]byte(b[2:6])))
+	}
+	if !ip.IsGlobalUnicast() {
+		return false
+	}
+	for _, p := range nonPublic {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }

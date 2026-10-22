@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -165,6 +166,26 @@ func TestBothClientsRefuseNonPublicAddresses(t *testing.T) {
 	}
 	if err := publicOnly("tcp", "93.184.216.34:443", nil); err != nil {
 		t.Errorf("public address refused: %v", err)
+	}
+}
+
+func TestIsPublic(t *testing.T) {
+	refused := []string{
+		"0.1.2.3", "10.1.1.1", "100.64.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.1", "192.0.0.8",
+		"192.0.2.1", "192.168.1.1", "198.18.0.1", "203.0.113.5", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+		"::", "::1", "::127.0.0.1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe",
+		"2002:7f00:1::1", "2002:c0a8:101::1", "2001:0:4136:e378::1", "64:ff9b:1::1", "fc00::1", "fd12::1",
+		"fe80::1", "fec0::1", "ff02::1", "2001:db8::1", "100::1",
+	}
+	for _, s := range refused {
+		if isPublic(netip.MustParseAddr(s)) {
+			t.Errorf("%s must be refused", s)
+		}
+	}
+	for _, s := range []string{"93.184.216.34", "1.1.1.1", "::ffff:8.8.8.8", "64:ff9b::808:808", "2002:808:808::1", "2606:4700::1111"} {
+		if !isPublic(netip.MustParseAddr(s)) {
+			t.Errorf("%s is public", s)
+		}
 	}
 }
 
