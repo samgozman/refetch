@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -119,5 +120,33 @@ func TestFileAndSize(t *testing.T) {
 	}
 	if s.Size() <= 0 {
 		t.Errorf("Size() = %d for an open store", s.Size())
+	}
+}
+
+func TestErrorsKeepNoQueryStrings(t *testing.T) {
+	s := open(t)
+	ctx := t.Context()
+	now := time.Now()
+	leak := `Get "https://user:pw@example.com/p?token=SECRET1#frag": dial tcp; then http://a.example/x?api_key=SECRET2`
+	if err := s.RecordCall(ctx, ToolCall{Time: now, ToolUseID: "t1", Tool: "WebFetch", URL: "https://example.com/p", Outcome: CallFailed, Error: leak}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordAttempt(ctx, Attempt{Time: now, FetchID: "f", URL: "https://example.com/p", Outcome: "error", Error: leak}); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := s.Calls(ctx, now.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts, err := s.Attempts(ctx, now.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `Get "https://example.com/p": dial tcp; then http://a.example/x`
+	if len(calls) != 1 || calls[0].Error != want || len(attempts) != 1 || attempts[0].Error != want {
+		t.Errorf("stored errors:\n%q\n%q\nwant %q", calls[0].Error, attempts[0].Error, want)
+	}
+	if fi, err := os.Stat(s.File()); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("events.db mode %v, %v", fi.Mode().Perm(), err)
 	}
 }

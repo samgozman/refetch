@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -124,6 +125,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	// The data dir may be one the user pointed at (REFETCH_DATA) with looser
+	// permissions; the rows name the pages they read.
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		_ = os.Chmod(f, 0o600)
+	}
 	return &Store{db: db, path: path}, nil
 }
 
@@ -172,7 +178,7 @@ func (s *Store) RecordCall(ctx context.Context, c ToolCall) error {
 			outcome = excluded.outcome, error = excluded.error,
 			url = CASE WHEN excluded.url != '' THEN excluded.url ELSE url END,
 			host = CASE WHEN excluded.host != '' THEN excluded.host ELSE host END`,
-		ms(c.Time), c.SessionID, c.ToolUseID, c.Tool, c.URL, c.Host, c.Outcome, clip(c.Error), c.CCVersion)
+		ms(c.Time), c.SessionID, c.ToolUseID, c.Tool, c.URL, c.Host, c.Outcome, clip(scrubURLs(c.Error)), c.CCVersion)
 	return err
 }
 
@@ -182,7 +188,7 @@ func (s *Store) RecordAttempt(ctx context.Context, a Attempt) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attempts (ts, fetch_id, via, url, host, client, outcome, status, bytes, ms, error)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ms(a.Time), a.FetchID, a.Via, a.URL, a.Host, a.Client, a.Outcome, a.Status, a.Bytes, a.Duration.Milliseconds(), clip(a.Error))
+		ms(a.Time), a.FetchID, a.Via, a.URL, a.Host, a.Client, a.Outcome, a.Status, a.Bytes, a.Duration.Milliseconds(), clip(scrubURLs(a.Error)))
 	return err
 }
 
@@ -307,6 +313,25 @@ func ms(t time.Time) int64 {
 		t = time.Now()
 	}
 	return t.UnixMilli()
+}
+
+// urlInText finds URLs inside error text, which Go's and Claude Code's
+// errors quote in full.
+var urlInText = regexp.MustCompile(`(?i)\bhttps?://[^\s"'<>]+`)
+
+// scrubURLs drops the query string, fragment and user info of every URL in
+// s, as the url column does.
+func scrubURLs(s string) string {
+	return urlInText.ReplaceAllStringFunc(s, func(u string) string {
+		if i := strings.IndexAny(u, "?#"); i >= 0 {
+			u = u[:i]
+		}
+		scheme, rest, _ := strings.Cut(u, "://")
+		if at := strings.LastIndex(rest, "@"); at >= 0 && !strings.Contains(rest[:at], "/") {
+			rest = rest[at+1:]
+		}
+		return scheme + "://" + rest
+	})
 }
 
 func clip(s string) string {
