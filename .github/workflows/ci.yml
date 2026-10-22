@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: make build
+      - name: Test
+        run: make test
+      - name: THIRD_PARTY_NOTICES is current
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          make notices
+          git diff --exit-code THIRD_PARTY_NOTICES
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0

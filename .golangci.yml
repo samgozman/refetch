@@ -1,0 +1,101 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - errorlint
+    - errname
+    - nilerr
+    - nilnil
+    - errchkjson
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - gosec
+    - noctx
+    - forcetypeassert
+    - exhaustive
+    - gocritic
+    - revive
+    - unconvert
+    - unparam
+    - wastedassign
+    - usestdlibvars
+    - perfsprint
+    - intrange
+    - modernize
+    - misspell
+    - whitespace
+    - nolintlint
+    - thelper
+    - copyloopvar
+    - predeclared
+    - gocognit
+    - funlen
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # readability over packing
+        - shadow # `err` shadowing in nested scopes is idiomatic
+    gosec:
+      excludes:
+        - G304 # reading files from configured paths is the point of a config loader
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocritic:
+      enabled-tags: [diagnostic, performance, style]
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy # rows are ranged once per report; copies are cheap
+        - unnamedResult
+        - whyNoLint # nolintlint covers it
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          arguments: [disableStutteringCheck]
+        - name: var-naming
+        - name: package-comments
+        - name: receiver-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: early-return
+        - name: use-any
+    funlen:
+      lines: 100
+      statements: 60
+    gocognit:
+      min-complexity: 30
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [funlen, gocognit, forcetypeassert, errchkjson, noctx, gosec, errcheck]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/samgozman/refetch]
