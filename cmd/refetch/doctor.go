@@ -323,8 +323,12 @@ func (e claudeEnv) permissionCheck() check {
 			}
 		}
 	}
+	where := e.short(filepath.Join(e.config, "settings.json"))
+	if config.Cloud() { // cloud sessions read the repository's settings, not the user's
+		where = "the repository's .claude/settings.json"
+	}
 	return check{false, "permission", "fetch_page is not allowed, so every rescue waits on a prompt (and fails under claude -p).\n" +
-		"Add to " + e.short(filepath.Join(e.config, "settings.json")) + `: "permissions": {"allow": ["` + fetchPageTool() + `"]}`}
+		"Add to " + where + `: "permissions": {"allow": ["` + fetchPageTool() + `"]}`}
 }
 
 // hooksCheck lists other hooks that also run on WebFetch or refetch's tool.

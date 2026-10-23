@@ -106,3 +106,13 @@ func TestOwnHooksAreNotOtherHooks(t *testing.T) {
 		t.Errorf("refetch's own project hook listed: %q", line)
 	}
 }
+
+func TestPermissionAdviceInCloud(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_REMOTE", "true")
+	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
+	e := claudeEnv{home: t.TempDir(), cwd: t.TempDir(), config: t.TempDir()}
+	c := e.permissionCheck()
+	if c.ok || !strings.Contains(c.detail, `Add to the repository's .claude/settings.json: "permissions": {"allow": ["mcp__refetch__fetch_page"]}`) {
+		t.Errorf("cloud permission advice: %+v", c)
+	}
+}
