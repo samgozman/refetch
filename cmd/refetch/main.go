@@ -72,6 +72,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "refetch:", err)
 		return 1
 	}
+	useProxy(cfg)
 	switch cmd {
 	case "mcp":
 		err = runMCP(ctx, cfg, stderr)
@@ -89,6 +90,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// useProxy routes connections through HTTPS_PROXY when the settings ask for
+// it, and returns the proxy's address ("" for none).
+func useProxy(cfg config.Config) string {
+	if !cfg.ProxyOn() {
+		return ""
+	}
+	return fetch.UseProxy()
 }
 
 // buildVersion is the release version, or the module version for go

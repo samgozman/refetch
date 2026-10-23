@@ -23,10 +23,13 @@ const (
 	toolWebFetch  = "WebFetch"
 	toolCtxFetch  = "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index"
 	toolFetchPage = "mcp__plugin_refetch_refetch__fetch_page"
-	inlineChars   = 8000
-	maxInline     = 3                // pages fetched inline per hook call
-	inlineBudget  = 75 * time.Second // all inline fetches, under the 90 s hook timeout
-	reasonChars   = 160              // a failure reason quoted to Claude
+	// toolProjectFetchPage is the name when refetch is a project's MCP server
+	// called "refetch" instead of a plugin, as in cloud sessions.
+	toolProjectFetchPage = "mcp__refetch__fetch_page"
+	inlineChars          = 8000
+	maxInline            = 3                // pages fetched inline per hook call
+	inlineBudget         = 75 * time.Second // all inline fetches, under the 90 s hook timeout
+	reasonChars          = 160              // a failure reason quoted to Claude
 )
 
 const standingGuidance = "If a web page cannot be read (WebFetch or ctx_fetch_and_index fails, is blocked, " +
@@ -68,6 +71,7 @@ func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		debug(err)
 		return
 	}
+	useProxy(cfg)
 	var in hookInput
 	if err := json.UnmarshalRead(stdin, &in); err != nil {
 		debug(err)
@@ -161,6 +165,15 @@ func (h *hooker) recordAs(ctx context.Context, tool string, in hookInput, id, ur
 	h.debug(h.st.RecordCall(ctx, store.ToolCall{
 		Time: h.now, SessionID: in.SessionID, ToolUseID: id, Tool: tool, URL: url, Outcome: outcome, Error: why,
 	}))
+}
+
+// fetchPageTool is fetch_page's full name: the plugin's, unless this hook
+// runs outside a plugin in a cloud session.
+func fetchPageTool() string {
+	if os.Getenv("CLAUDE_PLUGIN_ROOT") == "" && config.Cloud() {
+		return toolProjectFetchPage
+	}
+	return toolFetchPage
 }
 
 func isRead(tool string) bool { return tool == toolWebFetch || tool == toolCtxFetch }
@@ -317,7 +330,7 @@ func nudge(tool string, failed []failure) string {
 	var b strings.Builder
 	for _, f := range failed {
 		fmt.Fprintf(&b, "%s could not read %s (%s). Call fetch_page (%s) with this URL before answering or giving up. "+
-			"Pass render: false if other sources will do.", toolLabel(tool), f.url, f.reason, toolFetchPage)
+			"Pass render: false if other sources will do.", toolLabel(tool), f.url, f.reason, fetchPageTool())
 		if tool == toolCtxFetch {
 			b.WriteString(" context-mode is active: pass save: true to keep the page out of context, then index the saved file with ctx_index.")
 		}

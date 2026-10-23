@@ -101,6 +101,16 @@ Ask Claude to run `refetch doctor`, or run it yourself. It checks the
 binary and plugin versions, the permission rule, Chrome, the stats file and
 other hooks on WebFetch.
 
+### Cloud sessions
+
+Cloud sessions (Claude Code on the web, the Code tab in the Claude app,
+`claude --cloud`) don't install plugins. refetch runs there as a project's
+MCP server and hooks instead, installed by the environment's setup script:
+see [refetch in cloud sessions](docs/cloud-sessions.md). Sites see a data
+center IP address there, so fewer pages get through than on your own
+machine, and the environment's network access decides which sites refetch
+can reach at all.
+
 ## How it works
 
 refetch sits after Claude Code's own web reads. It changes nothing while
@@ -190,6 +200,7 @@ another file. Everything is on by default.
 | `stats` | `REFETCH_STATS` | `true` | `false` records nothing |
 | `mode` | `REFETCH_MODE` | `"nudge"` | `"inline"`: the hook fetches the page itself and puts its first 8,000 characters next to the failed result |
 | `user_agent` | `REFETCH_USER_AGENT` | `refetch/<version>` | The plain client's User-Agent |
+| `use_proxy` | `REFETCH_USE_PROXY` | `false` | `true` sends connections through `HTTPS_PROXY`, except to hosts `NO_PROXY` lists. Always on in cloud sessions. Off by default because a proxy that decrypts TLS replaces the Chrome-like handshake with its own |
 
 ```toml
 # ~/.config/refetch/config.toml
@@ -198,9 +209,12 @@ stats = false
 ```
 
 Headless Chrome uses `REFETCH_CHROME` if set, then the standard macOS app
-paths, then `google-chrome` or `chromium` on PATH. refetch never downloads a
-browser. As root (in a container, for example), the step is skipped, because
-Chrome's sandbox does not run as root.
+paths, then `google-chrome` or `chromium` on PATH, then Playwright's Chromium
+(in `PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers` or
+`~/.cache/ms-playwright`). refetch never downloads a browser. Chrome's
+sandbox does not run as root, so when refetch runs as root (in a container
+or a cloud session), it runs Chrome as the `nobody` user on Linux and skips
+the step elsewhere.
 
 To turn refetch off entirely, disable the plugin in `/plugin`.
 

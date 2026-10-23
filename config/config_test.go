@@ -88,3 +88,21 @@ func TestDurationText(t *testing.T) {
 		t.Error("UnmarshalText accepted \"soon\"")
 	}
 }
+
+func TestProxyOn(t *testing.T) {
+	t.Setenv("REFETCH_CONFIG", "/dev/null")
+	t.Setenv("CLAUDE_CODE_REMOTE", "")
+	t.Setenv("REFETCH_USE_PROXY", "")
+	if c, err := Load(); err != nil || c.ProxyOn() {
+		t.Errorf("proxy on by default outside the cloud: %v", err)
+	}
+	t.Setenv("REFETCH_USE_PROXY", "true")
+	if c, err := Load(); err != nil || !c.ProxyOn() {
+		t.Errorf("REFETCH_USE_PROXY=true: %v", err)
+	}
+	t.Setenv("REFETCH_USE_PROXY", "")
+	t.Setenv("CLAUDE_CODE_REMOTE", "true")
+	if c, err := Load(); err != nil || !c.ProxyOn() || !Cloud() {
+		t.Errorf("cloud session: %v", err)
+	}
+}

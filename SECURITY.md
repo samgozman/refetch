@@ -9,7 +9,11 @@ injection can choose it. These guarantees are security boundaries:
   own interface addresses. The check runs on the resolved address of every
   connection and redirect, so DNS rebinding cannot get around it. Headless
   Chrome reaches the network only through a local proxy that applies the
-  same check.
+  same check. Behind an upstream proxy (see below), the check runs before
+  each connection instead.
+- **Chrome never runs as root.** When refetch runs as root on Linux, Chrome
+  runs as the `nobody` user, with its sandbox on; elsewhere the step does
+  not run as root at all.
 - **Only pinned binaries run.** The plugin shim downloads the binary for
   its version from this repo's GitHub release and checks the archive and the
   binary against the sha256 values pinned in the plugin. It checks the
@@ -43,6 +47,12 @@ injection can choose it. These guarantees are security boundaries:
   127.0.0.1. Another process on your machine could use it to reach public
   addresses for those few seconds; it never reaches anything the address
   check refuses.
+- **An upstream proxy, when one is used.** In cloud sessions, or with
+  `use_proxy`, connections go through `HTTPS_PROXY`, and the proxy resolves
+  host names itself. refetch refuses non-public IP addresses and names that
+  resolve on this machine to non-public addresses, but a name that only the
+  proxy can resolve is the proxy's to check. Hosts `NO_PROXY` lists are
+  dialled directly, with the full check.
 - **What the address check cannot see.** An internal network on public IP
   space, or a service that trusts your IP address, looks public.
 

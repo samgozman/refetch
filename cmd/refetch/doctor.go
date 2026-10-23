@@ -34,14 +34,14 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
 	env := claudeEnv{home: home, cwd: cwd, config: cmp.Or(os.Getenv("CLAUDE_CONFIG_DIR"), filepath.Join(home, ".claude"))}
-	checks := []check{versionCheck(), updateCheck(ctx)}
 	cfg, err := config.Load()
+	cfgCheck := configCheck()
 	if err != nil {
-		checks = append(checks, check{false, "config", err.Error()})
+		cfgCheck = check{false, "config", err.Error()}
 		cfg = config.Default()
-	} else {
-		checks = append(checks, configCheck())
 	}
+	proxy := useProxy(cfg)
+	checks := []check{versionCheck(), updateCheck(ctx), cfgCheck, networkCheck(ctx, cfg, proxy)}
 	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
 	for _, c := range checks {
 		mark := "✓"
@@ -53,6 +53,32 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// probeHost is outside every cloud allowlist, so reaching it shows whether
+// a cloud session lets refetch read ordinary sites; tests replace it.
+var probeHost = "example.com:443"
+
+// networkCheck says how refetch connects and, in a cloud session, whether
+// the environment's network access lets it reach sites beyond its list.
+func networkCheck(ctx context.Context, cfg config.Config, proxy string) check {
+	switch {
+	case !cfg.ProxyOn():
+		return check{true, "network", "direct connections"}
+	case proxy == "":
+		return check{!config.Cloud(), "network", "no HTTPS_PROXY set, so connections go direct"}
+	case !config.Cloud():
+		return check{true, "network", "through the proxy at " + proxy + " (use_proxy)"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	conn, err := fetch.DialContext(ctx, "tcp", probeHost)
+	if err != nil {
+		return check{false, "network", "cloud session, through the proxy at " + proxy + ", which refused " + probeHost + ".\n" +
+			"The environment's network access level allows only listed domains: widen it in the environment settings, or add the sites you need"}
+	}
+	_ = conn.Close()
+	return check{true, "network", "cloud session, through the proxy at " + proxy + "; sites beyond the default list are reachable"}
 }
 
 func versionCheck() check {
@@ -205,9 +231,23 @@ type hookGroup struct {
 	} `json:"hooks"`
 }
 
+// refetchOnly reports a group of refetch's own hooks, as a project install
+// (cloud sessions) adds them to settings.json.
+func (g hookGroup) refetchOnly() bool {
+	for _, h := range g.Hooks {
+		if !strings.Contains(h.Command, "refetch hook") {
+			return false
+		}
+	}
+	return len(g.Hooks) > 0
+}
+
 // line describes the group if it runs on WebFetch or fetch_page, or is
 // empty.
 func (g hookGroup) line(source, event string) string {
+	if g.refetchOnly() {
+		return ""
+	}
 	var on []string
 	for _, tool := range []string{toolWebFetch, toolFetchPage} {
 		if matches(g.Matcher, tool) {
@@ -272,6 +312,9 @@ func (e claudeEnv) permissionCheck() check {
 		toolFetchPage:                    true,
 		"mcp__plugin_refetch_refetch":    true,
 		"mcp__plugin_refetch_refetch__*": true,
+		toolProjectFetchPage:             true,
+		"mcp__refetch":                   true,
+		"mcp__refetch__*":                true,
 	}
 	for path, s := range e.settings() {
 		for _, rule := range s.Permissions.Allow {
@@ -281,7 +324,7 @@ func (e claudeEnv) permissionCheck() check {
 		}
 	}
 	return check{false, "permission", "fetch_page is not allowed, so every rescue waits on a prompt (and fails under claude -p).\n" +
-		"Add to " + e.short(filepath.Join(e.config, "settings.json")) + `: "permissions": {"allow": ["` + toolFetchPage + `"]}`}
+		"Add to " + e.short(filepath.Join(e.config, "settings.json")) + `: "permissions": {"allow": ["` + fetchPageTool() + `"]}`}
 }
 
 // hooksCheck lists other hooks that also run on WebFetch or refetch's tool.

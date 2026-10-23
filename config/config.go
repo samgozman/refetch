@@ -1,6 +1,5 @@
-// Package config loads refetch's settings: defaults, then
-// ~/.config/refetch/config.toml, then REFETCH_* environment variables, so the
-// plugin's hooks, its MCP server and the CLI read the same switches.
+// Package config loads refetch's settings (defaults, config.toml, REFETCH_*
+// variables), so the hooks, the MCP server and the CLI read the same switches.
 package config
 
 import (
@@ -27,6 +26,7 @@ type Config struct {
 	Stats         bool     `toml:"stats"`          // record events.db rows
 	Mode          string   `toml:"mode"`           // nudge or inline (hook response)
 	UserAgent     string   `toml:"user_agent"`     // the plain client's User-Agent; empty = refetch/<version>
+	UseProxy      bool     `toml:"use_proxy"`      // HTTPS_PROXY outside cloud sessions; a TLS-decrypting one replaces the Chrome handshake
 }
 
 // Duration is a time.Duration written as "10s" in TOML and env vars.
@@ -123,7 +123,7 @@ func (c *Config) applyEnv(getenv func(string) string) error {
 			}
 		}
 	}
-	bools := map[string]*bool{"REFETCH_RESPECT_ROBOTS": &c.RespectRobots, "REFETCH_STATS": &c.Stats}
+	bools := map[string]*bool{"REFETCH_RESPECT_ROBOTS": &c.RespectRobots, "REFETCH_STATS": &c.Stats, "REFETCH_USE_PROXY": &c.UseProxy}
 	for k, p := range bools {
 		if v := getenv(k); v != "" {
 			b, err := strconv.ParseBool(v)
@@ -135,6 +135,12 @@ func (c *Config) applyEnv(getenv func(string) string) error {
 	}
 	return nil
 }
+
+// Cloud reports a Claude Code cloud session, online only through its proxy.
+func Cloud() bool { return os.Getenv("CLAUDE_CODE_REMOTE") == "true" }
+
+// ProxyOn reports whether connections go through HTTPS_PROXY.
+func (c Config) ProxyOn() bool { return c.UseProxy || Cloud() }
 
 // Validate checks the enumerated settings and durations.
 func (c Config) Validate() error {
