@@ -40,6 +40,7 @@ var (
 	ErrNoChrome = errors.New("no Chrome or Chromium found")
 	ErrRoot     = errors.New("running as root: headless Chrome needs its sandbox, which does not run as root (on Linux, refetch runs it as nobody instead)")
 	ErrTimeout  = errors.New("headless Chrome timed out")
+	ErrSandbox  = errors.New("headless Chrome cannot start its sandbox here: the container blocks the user namespaces it needs (Docker's default seccomp profile does)")
 )
 
 // Renderer runs the user's Chrome headless, behind a local proxy on the
@@ -96,6 +97,8 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 	cmd.WaitDelay = 2 * time.Second
 	out := &capped{max: fetch.MaxBytes}
 	cmd.Stdout = out
+	stderr := &capped{max: 64 << 10}
+	cmd.Stderr = stderr
 	err = cmd.Run()
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // helpers that outlived the browser
@@ -104,6 +107,9 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, fmt.Errorf("%w after %s", ErrTimeout, timeout)
 	}
 	if err != nil && out.buf.Len() == 0 {
+		if bytes.Contains(stderr.buf.Bytes(), []byte("No usable sandbox")) {
+			return nil, ErrSandbox
+		}
 		return nil, fmt.Errorf("headless Chrome failed: %w", err)
 	}
 	if out.buf.Len() == 0 {

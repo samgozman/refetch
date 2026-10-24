@@ -204,7 +204,9 @@ paths, then `google-chrome` or `chromium` on PATH, then Playwright's Chromium
 `~/.cache/ms-playwright`). refetch never downloads a browser. Chrome's
 sandbox does not run as root, so when refetch runs as root (in a container,
 for example), it runs Chrome as the `nobody` user on Linux and skips the
-step elsewhere.
+step elsewhere. Chrome's sandbox needs user namespaces, which Docker's
+default seccomp profile blocks, so in a container the step needs one that
+allows them (`--security-opt seccomp=unconfined` is the blunt way).
 
 To turn refetch off entirely, disable the plugin in `/plugin`.
 

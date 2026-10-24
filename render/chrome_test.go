@@ -6,8 +6,23 @@ import (
 	"testing"
 )
 
-func TestFindChrome(t *testing.T) {
+// chromeDir is a temporary folder for fake Chromes. As root, refetch runs
+// Chrome as nobody, who must be able to reach it.
+func chromeDir(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
+	if os.Geteuid() == 0 {
+		for _, d := range []string{dir, filepath.Dir(dir)} {
+			if err := os.Chmod(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return dir
+}
+
+func TestFindChrome(t *testing.T) {
+	dir := chromeDir(t)
 	bin := filepath.Join(dir, "chromium")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -29,7 +44,7 @@ func TestFindChrome(t *testing.T) {
 }
 
 func TestPlaywrightChrome(t *testing.T) {
-	dir := t.TempDir()
+	dir := chromeDir(t)
 	for _, p := range []string{"chromium-999/chrome-linux/chrome", "chromium-1200/chrome-linux64/chrome", "chromium_headless_shell-1300/chrome-linux/headless_shell"} {
 		bin := filepath.Join(dir, p)
 		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {

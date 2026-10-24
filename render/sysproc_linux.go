@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"strconv"
 	"syscall"
 )
@@ -32,16 +31,22 @@ func runAsNobody(cmd *exec.Cmd, profile string) error {
 			gid = uint32(n)
 		}
 	}
-	err := filepath.WalkDir(profile, func(p string, _ fs.DirEntry, err error) error {
+	// os.Root keeps the walk inside the profile, even if a link appears.
+	root, err := os.OpenRoot(profile)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	err = fs.WalkDir(root.FS(), ".", func(p string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		return os.Lchown(p, int(uid), int(gid))
+		return root.Lchown(p, int(uid), int(gid))
 	})
 	if err != nil {
 		return err
 	}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, NoSetGroups: true}
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid} // no supplementary groups: root's would stay otherwise
 	cmd.Env = append(os.Environ(), "HOME="+profile, "XDG_CONFIG_HOME="+profile, "XDG_CACHE_HOME="+profile)
 	return nil
 }

@@ -97,5 +97,27 @@ func ownedSafely(p string) bool {
 
 func isExec(p string) bool {
 	fi, err := os.Stat(p) //nolint:gosec // p is the user's own REFETCH_CHROME or a fixed install path
-	return err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0
+	if err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
+		return false
+	}
+	return !canDropRoot || os.Geteuid() != 0 || nobodyCanRun(p)
+}
+
+// nobodyCanRun reports that any user can reach and run p: as root, Chrome
+// runs as nobody, so one in a private folder such as /root/.cache would
+// only fail later.
+func nobodyCanRun(p string) bool {
+	p, err := filepath.EvalSymlinks(p)
+	for err == nil {
+		fi, statErr := os.Stat(p) //nolint:gosec // p is a Chrome found above, or a folder above it
+		if statErr != nil || fi.Mode().Perm()&0o001 == 0 {
+			return false
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return true
+		}
+		p = parent
+	}
+	return false
 }

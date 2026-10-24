@@ -1,0 +1,15 @@
+# CI's cover-check fails the build below 85%; Codecov reports against the
+# same line instead of against the last commit.
+coverage:
+  status:
+    project:
+      default:
+        target: 85%
+    # Some new code only runs as root on Linux (Chrome as nobody), which CI
+    # does not test, so a change is held to 70% of its own lines.
+    patch:
+      default:
+        target: 70%
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true
