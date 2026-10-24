@@ -190,6 +190,7 @@ another file. Everything is on by default.
 | `stats` | `REFETCH_STATS` | `true` | `false` records nothing |
 | `mode` | `REFETCH_MODE` | `"nudge"` | `"inline"`: the hook fetches the page itself and puts its first 8,000 characters next to the failed result |
 | `user_agent` | `REFETCH_USER_AGENT` | `refetch/<version>` | The plain client's User-Agent |
+| `use_proxy` | `REFETCH_USE_PROXY` | `false` | `true` sends connections through `HTTPS_PROXY`, except to hosts `NO_PROXY` lists. Off by default because a proxy that decrypts TLS replaces the Chrome-like handshake with its own |
 
 ```toml
 # ~/.config/refetch/config.toml
@@ -198,9 +199,12 @@ stats = false
 ```
 
 Headless Chrome uses `REFETCH_CHROME` if set, then the standard macOS app
-paths, then `google-chrome` or `chromium` on PATH. refetch never downloads a
-browser. As root (in a container, for example), the step is skipped, because
-Chrome's sandbox does not run as root.
+paths, then `google-chrome` or `chromium` on PATH, then Playwright's Chromium
+(in `PLAYWRIGHT_BROWSERS_PATH`, `/ms-playwright`, `/opt/pw-browsers` or
+`~/.cache/ms-playwright`). refetch never downloads a browser. Chrome's
+sandbox does not run as root, so when refetch runs as root (in a container,
+for example), it runs Chrome as the `nobody` user on Linux and skips the
+step elsewhere.
 
 To turn refetch off entirely, disable the plugin in `/plugin`.
 

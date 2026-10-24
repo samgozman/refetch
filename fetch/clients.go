@@ -29,15 +29,16 @@ var chromeHeaders = fhttp.Header{
 }
 
 // chromeGet fetches with a Chrome 150 TLS and HTTP/2 fingerprint. It shares
-// the public-only dialer and redirect rules, never uses a proxy or HTTP/3
-// (QUIC would bypass the dialer), and keeps no cookies between fetches.
+// the public-only dialer (and through it any proxy UseProxy set) and the
+// redirect rules, never uses HTTP/3 (QUIC would bypass the dialer), and keeps
+// no cookies between fetches.
 func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, []byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	opts := []tlsclient.HttpClientOption{
 		tlsclient.WithClientProfile(profiles.Chrome_150),
 		tlsclient.WithTimeoutSeconds(int(timeout.Seconds())),
-		tlsclient.WithDialer(dialer),
+		tlsclient.WithDialContext(DialContext),
 		tlsclient.WithDisableHttp3(),
 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
 		tlsclient.WithCustomRedirectFunc(func(req *fhttp.Request, via []*fhttp.Request) error {
@@ -67,7 +68,7 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, 
 }
 
 var plainClient = &http.Client{
-	Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext, TLSClientConfig: &tls.Config{InsecureSkipVerify: e2eLocal}}, // InsecureSkipVerify is true only in the e2e build
+	Transport: &http.Transport{Proxy: nil, DialContext: DialContext, TLSClientConfig: &tls.Config{InsecureSkipVerify: e2eLocal}}, // InsecureSkipVerify is true only in the e2e build
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return checkRedirect(req.URL, len(via))
 	},

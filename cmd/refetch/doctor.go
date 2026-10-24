@@ -42,7 +42,7 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	} else {
 		checks = append(checks, configCheck())
 	}
-	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
+	checks = append(checks, networkCheck(cfg, useProxy(cfg)), dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
 	for _, c := range checks {
 		mark := "✓"
 		if !c.ok {
@@ -55,12 +55,24 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	return nil
 }
 
+func networkCheck(cfg config.Config, proxy string) check {
+	switch {
+	case !cfg.UseProxy:
+		return check{true, "network", "direct connections"}
+	case proxy == "":
+		return check{false, "network", "use_proxy is on, but no HTTPS_PROXY is set, so connections go direct"}
+	}
+	return check{true, "network", "through the proxy at " + proxy + " (use_proxy)"}
+}
+
 func versionCheck() check {
 	bin := buildVersion()
 	plugin := os.Getenv("REFETCH_PLUGIN_VERSION")
 	switch {
 	case plugin == "":
 		return check{true, "version", "refetch " + bin + " (not run through the plugin)"}
+	case plugin == "0.0.0":
+		return check{true, "version", "refetch " + bin + ", with the plugin files of a development checkout"}
 	case strings.TrimPrefix(bin, "v") != plugin:
 		return check{false, "version", fmt.Sprintf("binary %s, plugin %s: run /reload-plugins, or check REFETCH_BIN", bin, plugin)}
 	}

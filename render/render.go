@@ -29,7 +29,7 @@ const (
 	OutcomeSkippedOff    = "skipped_off"     // render = "off"
 	OutcomeSkippedByCall = "skipped_by_call" // fetch_page(render: false)
 	OutcomeNoChrome      = "no_chrome"       // no Chrome or Chromium found
-	OutcomeSkippedRoot   = "skipped_root"    // running as root, where Chrome's sandbox cannot run
+	OutcomeSkippedRoot   = "skipped_root"    // running as root outside Linux, where Chrome's sandbox cannot run
 )
 
 // DefaultTimeout is render_timeout's default: Chrome start included.
@@ -38,7 +38,7 @@ const DefaultTimeout = 15 * time.Second
 // Errors Render returns.
 var (
 	ErrNoChrome = errors.New("no Chrome or Chromium found")
-	ErrRoot     = errors.New("running as root: headless Chrome needs its sandbox, which does not run as root")
+	ErrRoot     = errors.New("running as root: headless Chrome needs its sandbox, which does not run as root (on Linux, refetch runs it as nobody instead)")
 	ErrTimeout  = errors.New("headless Chrome timed out")
 )
 
@@ -59,8 +59,10 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, ErrNoChrome
 	}
 	// Rendering untrusted pages without Chrome's sandbox would hand any
-	// renderer exploit root, so the step does not run as root at all.
-	if os.Geteuid() == 0 {
+	// renderer exploit root, so Chrome never runs as root: on Linux it runs
+	// as nobody instead, elsewhere the step does not run.
+	asRoot := os.Geteuid() == 0
+	if asRoot && !canDropRoot {
 		return nil, ErrRoot
 	}
 	timeout := cmp.Or(r.Timeout, DefaultTimeout)
@@ -85,6 +87,11 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 
 	cmd := exec.CommandContext(ctx, chrome, chromeArgs(ctx, chrome, profile, px.addr, rawURL, timeout)...) //nolint:gosec // the user's own Chrome, found by FindChrome or REFETCH_CHROME
 	cmd.SysProcAttr = sysProcAttr()
+	if asRoot {
+		if err := runAsNobody(cmd, profile); err != nil {
+			return nil, err
+		}
+	}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // Chrome's helpers too
 	cmd.WaitDelay = 2 * time.Second
 	out := &capped{max: fetch.MaxBytes}

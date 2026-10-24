@@ -3,8 +3,11 @@
 package render
 
 import (
+	"cmp"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 )
 
 // macOSApps are the standard install paths, most common first.
@@ -17,8 +20,13 @@ var macOSApps = []string{
 // pathNames are looked up on PATH after the macOS apps.
 var pathNames = []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"}
 
+// playwrightBuilds are Playwright's Chromium builds inside its browsers
+// folder, the newest last when sorted.
+var playwrightBuilds = []string{"chromium-*/chrome-linux64/chrome", "chromium-*/chrome-linux/chrome"}
+
 // FindChrome returns the Chrome to run: REFETCH_CHROME if set, then the
-// macOS app paths (also under ~/Applications), then PATH. Empty means none.
+// macOS app paths (also under ~/Applications), then PATH, then Playwright's
+// Chromium. Empty means none.
 func FindChrome() string {
 	if p := os.Getenv("REFETCH_CHROME"); p != "" {
 		if isExec(p) {
@@ -37,6 +45,25 @@ func FindChrome() string {
 	for _, n := range pathNames {
 		if p, err := exec.LookPath(n); err == nil {
 			return p
+		}
+	}
+	return playwrightChrome(home)
+}
+
+func playwrightChrome(home string) string {
+	dirs := []string{"/ms-playwright", "/opt/pw-browsers", filepath.Join(home, ".cache", "ms-playwright")}
+	if p := os.Getenv("PLAYWRIGHT_BROWSERS_PATH"); p != "" && p != "0" {
+		dirs = append([]string{p}, dirs...)
+	}
+	for _, dir := range dirs {
+		for _, pattern := range playwrightBuilds {
+			found, _ := filepath.Glob(filepath.Join(dir, pattern))
+			slices.SortFunc(found, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(b, a)) })
+			for _, p := range found {
+				if isExec(p) {
+					return p
+				}
+			}
 		}
 	}
 	return ""
