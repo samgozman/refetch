@@ -117,4 +117,12 @@ run "$bin" "$@"
 # rewritten by the release job for every plugin version ("# <sha256>
 # <file>" lines).
 # BEGIN SHA256
+# 2973f78000ddde7a8a712adf82a701d28cf891ecd1daf79eb4d61bf8c7fce409  refetch_0.2.0_darwin_amd64.tar.gz
+# c168bee24601deb9c737bffa620de3baeb80f88231ea72ca3acbd241d05caccb  refetch_0.2.0_darwin_amd64
+# 039a95ebdc1007d18c768ec6636f6b8e80f2b59fa9d9c6f521f60d1a9dd2551b  refetch_0.2.0_darwin_arm64.tar.gz
+# cd804c886516c8525766f44a1a78beb301e669ecc012290c7fde8e9c5a9a0b1e  refetch_0.2.0_darwin_arm64
+# 9bccdeccf94cedaf86a36f677c4bd99d4155782ce289933110781d98d529d92b  refetch_0.2.0_linux_amd64.tar.gz
+# 78db1d239c870053d96d3b106068333a7b0ed1c37f9ac4541fb73c6403d66821  refetch_0.2.0_linux_amd64
+# 50f8519086b42411178e49c6495fb87b30e43b82e49fa7d24944ad32e9866377  refetch_0.2.0_linux_arm64.tar.gz
+# 4ffc9cffabfc440cd6b5b9fa66663ffe737140b0ae51ebd53182e08433af3748  refetch_0.2.0_linux_arm64
 # END SHA256
