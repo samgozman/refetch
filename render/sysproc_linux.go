@@ -18,11 +18,16 @@ func sysProcAttr() *syscall.SysProcAttr {
 // canDropRoot is true where a root refetch can run Chrome as another user.
 const canDropRoot = true
 
-// runAsNobody runs Chrome as the unprivileged nobody user, which keeps
-// Chrome's sandbox on when refetch runs as root (in a container). The
-// throwaway profile becomes nobody's, and Chrome's home with it.
+// runAsNobody runs Chrome as nobody, which keeps its sandbox on when
+// refetch runs as root (in a container).
 func runAsNobody(cmd *exec.Cmd, profile string) error {
-	uid, gid := uint32(65534), uint32(65534)
+	uid, gid := nobody()
+	return runAs(cmd, profile, uid, gid)
+}
+
+// nobody is the nobody user's uid and gid, 65534 where it has no entry.
+func nobody() (uid, gid uint32) {
+	uid, gid = 65534, 65534
 	if u, err := user.Lookup("nobody"); err == nil {
 		if n, err := strconv.ParseUint(u.Uid, 10, 32); err == nil {
 			uid = uint32(n)
@@ -31,6 +36,11 @@ func runAsNobody(cmd *exec.Cmd, profile string) error {
 			gid = uint32(n)
 		}
 	}
+	return uid, gid
+}
+
+// runAs hands the profile, as its home, to the user cmd runs as.
+func runAs(cmd *exec.Cmd, profile string, uid, gid uint32) error {
 	// os.Root keeps the walk inside the profile, even if a link appears.
 	root, err := os.OpenRoot(profile)
 	if err != nil {

@@ -77,3 +77,29 @@ func TestPlaywrightChromeOthersCanWrite(t *testing.T) {
 		t.Errorf("a Chromium in a folder others can write was used: %s", got)
 	}
 }
+
+func TestNobodyCanRun(t *testing.T) {
+	// /tmp and everything above it are open to everyone; only this folder
+	// is changed.
+	dir, err := os.MkdirTemp("/tmp", "refetch-test-")
+	if err != nil {
+		t.Skip(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	bin := filepath.Join(dir, "chrome")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if nobodyCanRun(bin) {
+		t.Errorf("%s is inside a private folder", bin)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !nobodyCanRun(bin) {
+		t.Errorf("%s is open to everyone", bin)
+	}
+	if nobodyCanRun(filepath.Join(dir, "missing")) {
+		t.Error("a missing file can be run")
+	}
+}

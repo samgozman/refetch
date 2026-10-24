@@ -1,6 +1,8 @@
 package fetch
 
 import (
+	"bufio"
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -144,5 +146,64 @@ func TestOnlyHTTPProxies(t *testing.T) {
 	_, err := dialProxied(t.Context(), &url.URL{Scheme: "socks5", Host: "127.0.0.1:1080"}, "example.com:443")
 	if err == nil || !strings.Contains(err.Error(), "only http:// proxies") {
 		t.Errorf("socks5 proxy: %v", err)
+	}
+}
+
+// rawProxy accepts one connection, reads the CONNECT request and answers
+// with reply verbatim ("" closes without a word).
+func rawProxy(t *testing.T, reply string) *url.URL {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = http.ReadRequest(bufio.NewReader(conn))
+		_, _ = io.WriteString(conn, reply)
+	}()
+	return &url.URL{Scheme: "http", Host: ln.Addr().String()}
+}
+
+func TestProxyReplies(t *testing.T) {
+	conn, err := dialProxied(t.Context(), rawProxy(t, "HTTP/1.1 200 Connection established\r\n\r\nearly bytes"), "refetch-test.invalid:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, 64)
+	n, _ := conn.Read(b)
+	_ = conn.Close()
+	if string(b[:n]) != "early bytes" {
+		t.Errorf("bytes sent with the proxy's reply: %q", b[:n])
+	}
+	if _, err := dialProxied(t.Context(), rawProxy(t, ""), "refetch-test.invalid:443"); err == nil {
+		t.Error("a proxy that hung up was accepted")
+	}
+	if _, err := dialProxied(t.Context(), &url.URL{Scheme: "http", Host: "127.0.0.1:1"}, "refetch-test.invalid:443"); err == nil {
+		t.Error("an unreachable proxy was accepted")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if _, err := dialProxied(ctx, &url.URL{Scheme: "http", Host: "127.0.0.1"}, "refetch-test.invalid:443"); err == nil {
+		t.Error("a proxy without a port: port 80 answered as a proxy")
+	}
+	if _, err := dialProxied(t.Context(), &url.URL{Scheme: "http", Host: "127.0.0.1:1"}, "no-port"); err == nil {
+		t.Error("a target without a port was accepted")
+	}
+}
+
+func TestUseProxyUnparsable(t *testing.T) {
+	t.Cleanup(func() { upstream.Store(nil) })
+	for _, k := range []string{"https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("HTTPS_PROXY", "http://[::1")
+	if got := UseProxy(); got != "http://[::1" {
+		t.Errorf("an unparsable proxy is reported as %q", got)
 	}
 }
