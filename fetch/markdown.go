@@ -26,21 +26,26 @@ func Markdown(body []byte, contentType string, page *url.URL) string {
 	}
 	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}}
 	m.markBlocks(doc)
-	return strings.TrimSpace(extraLines.ReplaceAllString(m.blocks(doc, 0, "\n\n"), "\n\n"))
+	return strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
 }
 
 // maxLinkLen drops the target of a longer link, which costs more of
 // max_chars than it is worth.
 const maxLinkLen = 500
 
-// maxDepth is how deep the converter follows nesting; below it an element
-// is plain text.
-const maxDepth = 200
-
-var (
-	extraLines = regexp.MustCompile(`\n{3,}`)
-	spaceRun   = regexp.MustCompile(`\s+`)
+// Limits that keep the output linear in the page, whatever its markup:
+// below maxDepth an element is plain text; past maxNest levels a quote or
+// list adds no more prefix to every line; a table wider than
+// maxTableWidth or with more than maxTableCells cells is laid out as its
+// cells' text, as every row would be padded to the widest one.
+const (
+	maxDepth      = 200
+	maxNest       = 6
+	maxTableWidth = 64
+	maxTableCells = 20000
 )
+
+var spaceRun = regexp.MustCompile(`\s+`)
 
 var skipTags = map[atom.Atom]bool{
 	atom.Script: true, atom.Style: true, atom.Noscript: true, atom.Svg: true, atom.Template: true,
@@ -67,6 +72,8 @@ type markdown struct {
 	hasBlock map[*html.Node]bool // elements with a block inside
 	inLink   int
 	lastLink string // the last link target shown, so a repeat shows only its text
+	quotes   int    // blockquotes open
+	lists    int    // lists open
 }
 
 // markBlocks fills hasBlock and reports whether n is or holds a block.
@@ -138,9 +145,11 @@ func (m *markdown) block(n *html.Node, depth int) string {
 	case atom.Pre:
 		return pre(n)
 	case atom.Blockquote:
+		m.quotes++
 		s := m.blocks(n, depth, "\n\n")
-		if s == "" {
-			return ""
+		m.quotes--
+		if s == "" || m.quotes >= maxNest {
+			return s
 		}
 		return "> " + strings.ReplaceAll(s, "\n", "\n> ")
 	case atom.Hr:
@@ -153,6 +162,8 @@ func (m *markdown) block(n *html.Node, depth int) string {
 }
 
 func (m *markdown) list(n *html.Node, depth int) string {
+	m.lists++
+	defer func() { m.lists-- }()
 	var items []string
 	i := 1
 	if s, err := strconv.Atoi(attr(n, "start")); err == nil {
@@ -172,7 +183,10 @@ func (m *markdown) list(n *html.Node, depth int) string {
 			s = m.item(c, depth+1, marker)
 			i++
 		case atom.Ul, atom.Ol: // a list straight inside a list, as some sites nest them
-			s = indent("  ", m.list(c, depth+1))
+			s = m.list(c, depth+1)
+			if m.lists < maxNest {
+				s = indent("  ", s)
+			}
 		default:
 		}
 		if s != "" {
@@ -184,8 +198,11 @@ func (m *markdown) list(n *html.Node, depth int) string {
 
 func (m *markdown) item(n *html.Node, depth int, marker string) string {
 	s := m.blocks(n, depth, "\n")
-	if s == "" {
+	switch {
+	case s == "":
 		return ""
+	case m.lists > maxNest:
+		return marker + s
 	}
 	return marker + strings.TrimPrefix(indent(strings.Repeat(" ", len(marker)), s), strings.Repeat(" ", len(marker)))
 }
@@ -194,11 +211,13 @@ func (m *markdown) item(n *html.Node, depth int, marker string) string {
 // (nested tables, lists or headings in its cells, or a single row or
 // column) is rendered as its cells' blocks instead.
 func (m *markdown) table(n *html.Node, depth int) string {
+	shown := m.lastLink
 	cells, width, ok := m.cells(n, depth)
 	if ok {
 		cells, width = trimTable(cells, width)
 	}
 	if !ok || len(cells) < 2 || width < 2 {
+		m.lastLink = shown // the cells are rendered again, links included
 		return m.blocks(n, depth, "\n\n")
 	}
 	var b strings.Builder
@@ -224,10 +243,11 @@ func (m *markdown) table(n *html.Node, depth int) string {
 // cells are the table's cells as one-line Markdown, a colspan as empty
 // cells after it; ok is false for a layout table.
 func (m *markdown) cells(n *html.Node, depth int) (cells [][]string, width int, ok bool) {
+	count := 0
 	for _, tr := range tableRows(n) {
 		var row []string
 		for c := tr.FirstChild; c != nil; c = c.NextSibling {
-			if c.DataAtom != atom.Td && c.DataAtom != atom.Th {
+			if c.DataAtom != atom.Td && c.DataAtom != atom.Th || hidden(c) {
 				continue
 			}
 			if layoutCell(c) {
@@ -235,10 +255,16 @@ func (m *markdown) cells(n *html.Node, depth int) (cells [][]string, width int, 
 			}
 			row = append(row, strings.ReplaceAll(oneLineText(m.blocks(c, depth+1, " ")), "|", `\|`))
 			if span, err := strconv.Atoi(attr(c, "colspan")); err == nil && span > 1 {
-				row = append(row, make([]string, min(span, 50)-1)...)
+				row = append(row, make([]string, min(span, maxTableWidth)-1)...)
+			}
+			if len(row) > maxTableWidth {
+				return nil, 0, false
 			}
 		}
 		width = max(width, len(row))
+		if count += len(row); len(cells)*width > maxTableCells || count > maxTableCells {
+			return nil, 0, false
+		}
 		cells = append(cells, row)
 	}
 	return cells, width, true
@@ -280,10 +306,12 @@ func tableRows(n *html.Node) []*html.Node {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.DataAtom {
 		case atom.Tr:
-			rows = append(rows, c)
+			if !hidden(c) {
+				rows = append(rows, c)
+			}
 		case atom.Thead, atom.Tbody, atom.Tfoot:
 			for r := c.FirstChild; r != nil; r = r.NextSibling {
-				if r.DataAtom == atom.Tr {
+				if r.DataAtom == atom.Tr && !hidden(r) {
 					rows = append(rows, r)
 				}
 			}
@@ -394,15 +422,15 @@ func (m *markdown) href(raw string) string {
 	if u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "mailto" {
 		return ""
 	}
-	if q := u.Query(); len(q) > 0 {
-		n := len(q)
-		for k := range q {
-			if strings.HasPrefix(strings.ToLower(k), "utm_") || containsFold(trackingParams, k) {
-				delete(q, k)
-			}
-		}
-		if len(q) != n {
-			u.RawQuery = q.Encode()
+	if u.RawQuery != "" { // filtered pair by pair, so the rest keeps its order and encoding
+		pairs := strings.Split(u.RawQuery, "&")
+		kept := slices.DeleteFunc(slices.Clone(pairs), func(p string) bool {
+			k, _, _ := strings.Cut(p, "=")
+			k, _ = url.QueryUnescape(k)
+			return strings.HasPrefix(strings.ToLower(k), "utm_") || containsFold(trackingParams, k)
+		})
+		if len(kept) != len(pairs) {
+			u.RawQuery = strings.Join(kept, "&")
 		}
 	}
 	s := strings.NewReplacer(" ", "%20", "(", "%28", ")", "%29", "<", "%3C", ">", "%3E").Replace(u.String())
@@ -514,27 +542,34 @@ func edges(s string) (lead, trail string) {
 	return lead, trail
 }
 
-// textOf is n's text with its whitespace as is, scripts and styles left out.
+// textOf is n's text with its whitespace as is, without the elements the
+// page does not show as text (scripts, a code block's Copy button, hidden
+// ones). It walks the tree without recursion, in one pass.
 func textOf(n *html.Node) string {
 	var b strings.Builder
-	for d := range n.Descendants() {
+	for d := n.FirstChild; d != nil; {
+		open := false
 		switch {
-		case d.Type == html.TextNode && !skippedIn(d, n):
+		case d.Type == html.TextNode:
 			b.WriteString(d.Data)
 		case d.DataAtom == atom.Br:
 			b.WriteString("\n")
+		case d.Type == html.ElementNode:
+			open = !skipTags[d.DataAtom] && !hidden(d)
 		}
+		if open && d.FirstChild != nil {
+			d = d.FirstChild
+			continue
+		}
+		for d != n && d.NextSibling == nil {
+			d = d.Parent
+		}
+		if d == n {
+			break
+		}
+		d = d.NextSibling
 	}
 	return b.String()
-}
-
-func skippedIn(d, root *html.Node) bool {
-	for p := d.Parent; p != nil && p != root; p = p.Parent {
-		if p.DataAtom == atom.Script || p.DataAtom == atom.Style {
-			return true
-		}
-	}
-	return false
 }
 
 // hidden reports an element the page does not show.

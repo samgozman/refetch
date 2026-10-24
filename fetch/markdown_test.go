@@ -35,6 +35,13 @@ func TestMarkdown(t *testing.T) {
 		{"one-column table", "<table><tr><td>a</td></tr><tr><td>b</td></tr></table>", "a\n\nb"},
 		{"hidden and skipped", `<p>shown</p><div hidden>no</div><span aria-hidden="true">icon</span><p style="display: none">gone</p><script>x()</script><noscript>js</noscript><button>Menu</button>`, "shown"},
 		{"br", "<p>line one<br>line two</p>", "line one\nline two"},
+		{"links in a layout table keep their target", `<table><tr><td><a href="/x">Home</a></td></tr></table><table><tr><td><a href="/y">Docs</a><td>y<tr><td><ul><li>z</ul></table>`,
+			"[Home](https://docs.example.com/x)\n\n[Docs](https://docs.example.com/y)\n\ny\n\n- z"},
+		{"pre keeps blank lines", "<pre>def a():\n    pass\n\n\ndef b():\n    pass</pre>", "```\ndef a():\n    pass\n\n\ndef b():\n    pass\n```"},
+		{"pre without its Copy button", "<pre><button>Copy</button><code>go test ./...</code></pre>", "```\ngo test ./...\n```"},
+		{"hidden rows and cells", `<table><tr><th>a<th>b<th hidden>secret</tr><tr><td>1<td>2</tr><tr style="display:none"><td>secret<td>secret</tr></table>`,
+			"| a | b |\n| --- | --- |\n| 1 | 2 |"},
+		{"query order kept", `<a href="https://example.com/s?q=a%20b&utm_x=1&b=2">s</a>`, "[s](https://example.com/s?q=a%20b&b=2)"},
 		{"custom elements are blocks", "<react-app><span><div>one</div><div>two</div></span></react-app>", "one\n\ntwo"},
 		{"click-through links unwrap", `<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc&rut=abc">Go docs</a> <a href="https://www.google.com/url?q=https://pkg.go.dev/&sa=U">pkg</a> <a href="/search?q=https://x.example/">search</a>`,
 			"[Go docs](https://go.dev/doc) [pkg](https://pkg.go.dev/) [search](https://docs.example.com/search?q=https://x.example/)"},
@@ -65,5 +72,23 @@ func TestMarkdownOtherTypes(t *testing.T) {
 	deep := strings.Repeat("<div>", maxDepth+50) + "deep <b>text</b>" + strings.Repeat("</div>", maxDepth+50)
 	if got := Markdown([]byte(deep), "text/html", nil); got != "deep text" {
 		t.Errorf("deep nesting = %q", got)
+	}
+}
+
+// TestMarkdownStaysLinear checks that crafted markup cannot make the output
+// grow faster than the page: a wide row pads every row, and each level of
+// quote or list prefixes every line.
+func TestMarkdownStaysLinear(t *testing.T) {
+	const size = 256 << 10
+	fill := func(unit string) string { return strings.Repeat(unit, size/len(unit)) }
+	for name, page := range map[string]string{
+		"wide row":   "<table><tr>" + strings.Repeat("<td>x", 4000) + fill("<tr><td>a<td>b"),
+		"colspan":    "<table><tr><td>a<td>b" + fill("<tr><td colspan=1000>x"),
+		"deep quote": strings.Repeat("<blockquote>", 150) + fill("a<br>"),
+		"deep list":  strings.Repeat("<ul><li>", 150) + fill("a<br>"),
+	} {
+		if out := Markdown([]byte(page), "text/html", nil); len(out) > 4*len(page) {
+			t.Errorf("%s: %d bytes of Markdown from %d bytes of HTML", name, len(out), len(page))
+		}
 	}
 }

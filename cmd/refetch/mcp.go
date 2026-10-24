@@ -103,7 +103,7 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		return head + fence(fetch.Clip(text, maxChars)), nil
 	}
 	ext := ".md"
-	if in.Format == formatText {
+	if in.Format == formatText || !strings.Contains(p.ContentType, "html") {
 		ext = ".txt"
 	}
 	path, err := savePage(dataDir, p.Last.Host, text, ext)
