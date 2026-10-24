@@ -37,7 +37,7 @@ func fake(pages map[string]page, calls *atomic.Int32) getter {
 		if ct == "" {
 			ct = "text/html"
 		}
-		return reply{p.status, []byte(p.body), ct, p.mitigated}, nil
+		return reply{p.status, []byte(p.body), ct, p.mitigated, url}, nil
 	}
 }
 

@@ -51,7 +51,7 @@ func TestMCPTool(t *testing.T) {
 
 func TestSavePage(t *testing.T) {
 	dir := t.TempDir()
-	path, err := savePage(dir, "news.example.com", "full text")
+	path, err := savePage(dir, "news.example.com", "full text", ".txt")
 	if err != nil {
 		t.Fatal(err)
 	}

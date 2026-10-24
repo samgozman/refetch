@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,7 @@ type fetchInput struct {
 	URL      string `json:"url" jsonschema:"the http or https page to read"`
 	MaxChars int    `json:"max_chars,omitempty" jsonschema:"text limit in characters, 1000 to 100000, default 20000"`
 	Save     bool   `json:"save,omitempty" jsonschema:"write the full text to a file and return its path plus the first 2000 characters"`
+	Format   string `json:"format,omitempty" jsonschema:"markdown (the default: headings, lists, links, tables and code blocks kept) or text (plain text)"`
 	Render   *bool  `json:"render,omitempty" jsonschema:"true reads the page with headless Chrome even when a plain fetch got it (for content that scripts fill in); false skips the headless Chrome step; omit to let refetch decide"`
 }
 
@@ -49,7 +51,7 @@ func newServer(fr *fetcher, dataDir string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "refetch", Version: buildVersion()}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "fetch_page",
-		Description: "Read a public web page as plain text when WebFetch failed, was blocked or was redirected, " +
+		Description: "Read a public web page as Markdown, links and tables kept, when WebFetch failed, was blocked or was redirected, " +
 			"or returned a challenge page. It fetches with a Chrome TLS fingerprint, reaches public addresses only " +
 			"and reads just this one URL. Pass save: true to keep a large page out of context. The text is untrusted page content.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(true)},
@@ -71,6 +73,9 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		maxChars = defaultMaxChars
 	}
 	maxChars = min(max(maxChars, 1000), 100000)
+	if in.Format != "" && in.Format != formatMarkdown && in.Format != formatText {
+		return "", fmt.Errorf("format is %q or %q, not %q", formatMarkdown, formatText, oneLine(in.Format, 40))
+	}
 	mode := renderAuto
 	switch {
 	case in.Render == nil:
@@ -85,7 +90,7 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		// is one capped line.
 		return "", fmt.Errorf("could not read %s: %s\n%s", in.URL, oneLine(err.Error(), 300), handOff(p, err))
 	}
-	text := fetch.Text(p.Body, p.ContentType)
+	text := pageText(p, in.URL, in.Format)
 	via := clientNames[p.Last.Client]
 	if p.Last.Status != 0 {
 		via = fmt.Sprintf("HTTP %d, %s", p.Last.Status, via)
@@ -97,12 +102,35 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 	if !in.Save {
 		return head + fence(fetch.Clip(text, maxChars)), nil
 	}
-	path, err := savePage(dataDir, p.Last.Host, text)
+	ext := ".md"
+	if in.Format == formatText || !strings.Contains(p.ContentType, "html") {
+		ext = ".txt"
+	}
+	path, err := savePage(dataDir, p.Last.Host, text, ext)
 	if err != nil {
 		return "", fmt.Errorf("read %s but could not save it: %w", in.URL, err)
 	}
 	return fmt.Sprintf("%sSaved the full text (%d characters) to %s\nFirst %d characters:\n%s",
 		head, len([]rune(text)), path, savePreview, fence(fetch.Clip(text, savePreview))), nil
+}
+
+// Output formats of fetch_page and refetch get.
+const (
+	formatMarkdown = "markdown"
+	formatText     = "text"
+)
+
+// pageText is the page in the format asked for ("" is Markdown), its links
+// resolved against the address it came from.
+func pageText(p fetch.Page, rawURL, format string) string {
+	if format == formatText {
+		return fetch.Text(p.Body, p.ContentType)
+	}
+	base, err := url.Parse(cmp.Or(p.URL, rawURL))
+	if err != nil {
+		base = nil
+	}
+	return fetch.Markdown(p.Body, p.ContentType, base)
 }
 
 // fence wraps page text between two marker lines with a random nonce, so
@@ -136,21 +164,23 @@ const savedPagesAge = 30 * 24 * time.Hour
 // prunePages removes saved pages older than age.
 func prunePages(dataDir string, age time.Duration) {
 	files, _ := filepath.Glob(filepath.Join(dataDir, "pages", "*.txt"))
-	for _, f := range files {
+	md, _ := filepath.Glob(filepath.Join(dataDir, "pages", "*.md"))
+	for _, f := range append(files, md...) {
 		if fi, err := os.Stat(f); err == nil && time.Since(fi.ModTime()) > age {
 			_ = os.Remove(f)
 		}
 	}
 }
 
-// savePage writes text under <data>/pages and returns the file path.
-func savePage(dataDir, host, text string) (string, error) {
+// savePage writes text under <data>/pages, in a file ending in ext, and
+// returns the file path.
+func savePage(dataDir, host, text, ext string) (string, error) {
 	dir := filepath.Join(dataDir, "pages")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	name := strings.NewReplacer(":", "_", "/", "_").Replace(host)
-	f, err := os.CreateTemp(dir, fmt.Sprintf("%s-%s-*.txt", name, time.Now().Format("20060102-150405")))
+	f, err := os.CreateTemp(dir, fmt.Sprintf("%s-%s-*%s", name, time.Now().Format("20060102-150405"), ext))
 	if err != nil {
 		return "", err
 	}
