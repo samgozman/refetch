@@ -206,7 +206,10 @@ sandbox does not run as root, so when refetch runs as root (in a container,
 for example), it runs Chrome as the `nobody` user on Linux and skips the
 step elsewhere. Chrome's sandbox needs user namespaces, which Docker's
 default seccomp profile blocks, so in a container the step needs one that
-allows them (`--security-opt seccomp=unconfined` is the blunt way).
+allows them (`--security-opt seccomp=unconfined` is the blunt way). refetch
+skips a Playwright Chromium that other users can write to, as in
+Playwright's Docker images; `refetch doctor` names it, and setting
+`REFETCH_CHROME` to it uses it anyway.
 
 To turn refetch off entirely, disable the plugin in `/plugin`.
 

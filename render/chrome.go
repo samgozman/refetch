@@ -52,6 +52,30 @@ func FindChrome() string {
 }
 
 func playwrightChrome(home string) string {
+	for _, p := range playwrightFound(home) {
+		if ownedSafely(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// UnsafePlaywrightChrome is a Playwright Chromium that FindChrome passed
+// over because others can write to it, as in Playwright's Docker images;
+// "" when there is none.
+func UnsafePlaywrightChrome() string {
+	home, _ := os.UserHomeDir()
+	for _, p := range playwrightFound(home) {
+		if !ownedSafely(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// playwrightFound lists the Playwright Chromium builds, preferred first.
+func playwrightFound(home string) []string {
+	var all []string
 	dirs := []string{"/ms-playwright", "/opt/pw-browsers", filepath.Join(home, ".cache", "ms-playwright")}
 	if p := os.Getenv("PLAYWRIGHT_BROWSERS_PATH"); p != "" && p != "0" {
 		dirs = append([]string{p}, dirs...)
@@ -61,13 +85,13 @@ func playwrightChrome(home string) string {
 			found, _ := filepath.Glob(filepath.Join(dir, pattern))
 			slices.SortFunc(found, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(b, a)) })
 			for _, p := range found {
-				if isExec(p) && ownedSafely(p) {
-					return p
+				if isExec(p) {
+					all = append(all, p)
 				}
 			}
 		}
 	}
-	return ""
+	return all
 }
 
 // ownedSafely reports that p and every folder above it belong to root or
@@ -76,7 +100,7 @@ func playwrightChrome(home string) string {
 func ownedSafely(p string) bool {
 	euid := uint32(os.Geteuid()) //nolint:gosec // a uid is never negative
 	for {
-		fi, err := os.Lstat(p) //nolint:gosec // p is a Playwright build found under a fixed folder, or a folder above it
+		fi, err := os.Lstat(p)
 		if err != nil {
 			return false
 		}

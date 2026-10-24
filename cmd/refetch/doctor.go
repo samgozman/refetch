@@ -193,6 +193,10 @@ func chromeCheck(ctx context.Context, cfg config.Config) check {
 	if p := render.FindChrome(); p != "" {
 		return check{true, "chrome", fmt.Sprintf("%s at %s; headless Chrome step on (timeout %s)", render.Name(ctx, p), p, cfg.RenderTimeout)}
 	}
+	if p := render.UnsafePlaywrightChrome(); p != "" {
+		return check{false, "chrome", "Playwright's Chromium at " + p + " is skipped: other users can write to it or a folder above it.\n" +
+			"If this machine is yours alone (a container, say), set REFETCH_CHROME=" + p}
+	}
 	return check{false, "chrome", "no Chrome or Chromium found, so the headless Chrome step is skipped.\n" +
 		"Install Google Chrome, or set REFETCH_CHROME to a Chrome binary."}
 }

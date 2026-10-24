@@ -1,10 +1,14 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/samgozman/refetch/config"
 	"github.com/samgozman/refetch/fetch"
+	"github.com/samgozman/refetch/render"
 )
 
 func TestNetworkCheck(t *testing.T) {
@@ -31,5 +35,30 @@ func TestVersionOfADevelopmentCheckout(t *testing.T) {
 	t.Setenv("REFETCH_PLUGIN_VERSION", "0.0.0")
 	if c := versionCheck(); !c.ok {
 		t.Errorf("REFETCH_BIN with a development checkout: %+v", c)
+	}
+}
+
+func TestChromeCheckNamesAnUnsafePlaywright(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "chromium-1200", "chrome-linux64", "chrome")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "chromium-1200"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", dir)
+	t.Setenv("REFETCH_CHROME", "")
+	t.Setenv("PATH", "")
+	t.Setenv("HOME", t.TempDir())
+	if render.FindChrome() != "" {
+		t.Skip("a Chrome is installed in a fixed path here")
+	}
+	c := chromeCheck(t.Context(), config.Default())
+	if c.ok || !strings.Contains(c.detail, "set REFETCH_CHROME="+bin) {
+		t.Errorf("chrome check: %+v", c)
 	}
 }

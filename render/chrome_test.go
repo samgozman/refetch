@@ -76,6 +76,9 @@ func TestPlaywrightChromeOthersCanWrite(t *testing.T) {
 	if got := playwrightChrome(t.TempDir()); got == bin {
 		t.Errorf("a Chromium in a folder others can write was used: %s", got)
 	}
+	if got := UnsafePlaywrightChrome(); got != bin {
+		t.Errorf("UnsafePlaywrightChrome = %q, want %q", got, bin)
+	}
 }
 
 func TestNobodyCanRun(t *testing.T) {
