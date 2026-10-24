@@ -1,0 +1,18 @@
+{
+  "permissions": { "allow": ["mcp__refetch__fetch_page"] },
+  "enabledMcpjsonServers": ["refetch"],
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "[ -x /opt/refetch/bin/refetch ] && /opt/refetch/bin/refetch hook SessionStart || true", "timeout": 120 }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "[ -x /opt/refetch/bin/refetch ] && /opt/refetch/bin/refetch hook PreToolUse || true", "timeout": 10 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "WebFetch|mcp__refetch__.*", "hooks": [{ "type": "command", "command": "[ -x /opt/refetch/bin/refetch ] && /opt/refetch/bin/refetch hook PostToolUse || true", "timeout": 90 }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "WebFetch|mcp__refetch__.*", "hooks": [{ "type": "command", "command": "[ -x /opt/refetch/bin/refetch ] && /opt/refetch/bin/refetch hook PostToolUseFailure || true", "timeout": 90 }] }
+    ]
+  }
+}
