@@ -28,16 +28,25 @@ var chromeHeaders = fhttp.Header{
 	fhttp.HeaderOrderKey: {"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "upgrade-insecure-requests", "user-agent", "accept", "accept-encoding", "accept-language"},
 }
 
+// reply is one HTTP response, cut at MaxBytes; mitigated is Cloudflare's
+// cf-mitigated header, url the address after redirects.
+type reply struct {
+	status                      int
+	body                        []byte
+	contentType, mitigated, url string
+}
+
 // chromeGet fetches with a Chrome 150 TLS and HTTP/2 fingerprint. It shares
-// the public-only dialer and redirect rules, never uses a proxy or HTTP/3
-// (QUIC would bypass the dialer), and keeps no cookies between fetches.
-func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, []byte, string, error) {
+// the public-only dialer (and through it any proxy UseProxy set) and the
+// redirect rules, never uses HTTP/3 (QUIC would bypass the dialer), and keeps
+// no cookies between fetches.
+func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	opts := []tlsclient.HttpClientOption{
 		tlsclient.WithClientProfile(profiles.Chrome_150),
 		tlsclient.WithTimeoutSeconds(int(timeout.Seconds())),
-		tlsclient.WithDialer(dialer),
+		tlsclient.WithDialContext(DialContext),
 		tlsclient.WithDisableHttp3(),
 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
 		tlsclient.WithCustomRedirectFunc(func(req *fhttp.Request, via []*fhttp.Request) error {
@@ -49,45 +58,45 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (int, 
 	}
 	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), opts...)
 	if err != nil {
-		return 0, nil, "", err
+		return reply{}, err
 	}
 	defer client.CloseIdleConnections()
 	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodGet, rawURL, nil)
 	if err != nil {
-		return 0, nil, "", err
+		return reply{}, err
 	}
 	req.Header = chromeHeaders.Clone()
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, nil, "", err
+		return reply{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
-	return resp.StatusCode, body, resp.Header.Get("Content-Type"), err
+	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 
 var plainClient = &http.Client{
-	Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext, TLSClientConfig: &tls.Config{InsecureSkipVerify: e2eLocal}}, // InsecureSkipVerify is true only in the e2e build
+	Transport: &http.Transport{Proxy: nil, DialContext: DialContext, TLSClientConfig: &tls.Config{InsecureSkipVerify: e2eLocal}}, // InsecureSkipVerify is true only in the e2e build
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return checkRedirect(req.URL, len(via))
 	},
 }
 
-func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Duration) (int, []byte, string, error) {
+func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Duration) (reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
-		return 0, nil, "", err
+		return reply{}, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := plainClient.Do(req)
 	if err != nil {
-		return 0, nil, "", err
+		return reply{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
-	return resp.StatusCode, body, resp.Header.Get("Content-Type"), err
+	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 
 func checkRedirect(u *url.URL, hops int) error {

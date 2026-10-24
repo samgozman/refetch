@@ -119,7 +119,7 @@ flowchart TD
     subgraph FetchPage ["fetch_page, refetch's MCP tool"]
         Client["1. Chrome-like client<br/>Chrome TLS fingerprint, about 1 s"]
         Client -- "challenge or<br/>JavaScript-only page" --> Headless["2. Headless Chrome<br/>your installed Chrome, 15 s at most"]
-        Client -- "page" --> Text["Page text"]
+        Client -- "page" --> Text["Page as Markdown"]
         Headless -- "page" --> Text
         Client -- "HTTP 403/429<br/>or error" --> Handoff["Hand-off: why it failed"]
         Headless -- "still blocked" --> Handoff
@@ -141,14 +141,26 @@ show how often each path was taken. Step by step:
    looks like Chrome's (about 1 s, no JavaScript). A plain Go client is only
    its backup for the Chrome-like client's own TLS or protocol errors.
 4. For a challenge or JavaScript-only page, it runs your installed Chrome or
-   Chromium headless, for 15 s at most. A hard 403 or 429 skips this step,
-   and so does a machine without Chrome.
+   Chromium headless, for 15 s at most. A challenge counts even when it comes
+   as a 403, as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or
+   429 skips this step, and so does a machine without Chrome.
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 
-Claude can pass `render: false` to skip headless Chrome for one call, and
-`save: true` to get a file path and a short preview instead of the whole
-page in context.
+`fetch_page` returns a page as Markdown: headings, lists, links, tables and
+code blocks kept, scripts and hidden elements dropped. Links are absolute, and
+search engines' click-through links point at their targets, so Claude can
+follow a search result or a "next page" link. Only http, https and mailto
+links keep their target, and tracking parameters (`utm_*`, `fbclid`, `gclid`)
+are dropped. Pass `format: "text"` for plain text instead. A PDF, an image or
+another file gets a clear error instead of its bytes.
+
+Claude can pass `render: true` to read a page with headless Chrome even when
+the first step got it (for content that scripts fill in), `render: false` to
+skip headless Chrome for one call, and `save: true` to get a file path and a
+short preview instead of the whole page in context (the file is `.md`, or
+`.txt` with `format: "text"`). If Chrome cannot read a
+page the first step got, the result is the first step's text, with a note.
 
 ### With context-mode and RTK
 
@@ -190,6 +202,7 @@ another file. Everything is on by default.
 | `stats` | `REFETCH_STATS` | `true` | `false` records nothing |
 | `mode` | `REFETCH_MODE` | `"nudge"` | `"inline"`: the hook fetches the page itself and puts its first 8,000 characters next to the failed result |
 | `user_agent` | `REFETCH_USER_AGENT` | `refetch/<version>` | The plain client's User-Agent |
+| `use_proxy` | `REFETCH_USE_PROXY` | `false` | `true` sends connections through `HTTPS_PROXY`, except to hosts `NO_PROXY` lists. Off by default because a proxy that decrypts TLS replaces the Chrome-like handshake with its own |
 
 ```toml
 # ~/.config/refetch/config.toml
@@ -198,9 +211,17 @@ stats = false
 ```
 
 Headless Chrome uses `REFETCH_CHROME` if set, then the standard macOS app
-paths, then `google-chrome` or `chromium` on PATH. refetch never downloads a
-browser. As root (in a container, for example), the step is skipped, because
-Chrome's sandbox does not run as root.
+paths, then `google-chrome` or `chromium` on PATH, then Playwright's Chromium
+(in `PLAYWRIGHT_BROWSERS_PATH`, `/ms-playwright`, `/opt/pw-browsers` or
+`~/.cache/ms-playwright`). refetch never downloads a browser. Chrome's
+sandbox does not run as root, so when refetch runs as root (in a container,
+for example), it runs Chrome as the `nobody` user on Linux and skips the
+step elsewhere. Chrome's sandbox needs user namespaces, which Docker's
+default seccomp profile blocks, so in a container the step needs one that
+allows them (`--security-opt seccomp=unconfined` is the blunt way). refetch
+skips a Playwright Chromium that other users can write to, as in
+Playwright's Docker images; `refetch doctor` names it, and setting
+`REFETCH_CHROME` to it uses it anyway.
 
 To turn refetch off entirely, disable the plugin in `/plugin`.
 

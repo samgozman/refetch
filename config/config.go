@@ -27,6 +27,7 @@ type Config struct {
 	Stats         bool     `toml:"stats"`          // record events.db rows
 	Mode          string   `toml:"mode"`           // nudge or inline (hook response)
 	UserAgent     string   `toml:"user_agent"`     // the plain client's User-Agent; empty = refetch/<version>
+	UseProxy      bool     `toml:"use_proxy"`      // connect through HTTPS_PROXY; a TLS-decrypting one replaces the Chrome handshake
 }
 
 // Duration is a time.Duration written as "10s" in TOML and env vars.
@@ -123,7 +124,7 @@ func (c *Config) applyEnv(getenv func(string) string) error {
 			}
 		}
 	}
-	bools := map[string]*bool{"REFETCH_RESPECT_ROBOTS": &c.RespectRobots, "REFETCH_STATS": &c.Stats}
+	bools := map[string]*bool{"REFETCH_RESPECT_ROBOTS": &c.RespectRobots, "REFETCH_STATS": &c.Stats, "REFETCH_USE_PROXY": &c.UseProxy}
 	for k, p := range bools {
 		if v := getenv(k); v != "" {
 			b, err := strconv.ParseBool(v)

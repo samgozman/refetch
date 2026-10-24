@@ -9,7 +9,14 @@ injection can choose it. These guarantees are security boundaries:
   own interface addresses. The check runs on the resolved address of every
   connection and redirect, so DNS rebinding cannot get around it. Headless
   Chrome reaches the network only through a local proxy that applies the
-  same check.
+  same check. Behind an upstream proxy (see below), the check runs before
+  each connection instead.
+- **Chrome never runs as root.** When refetch runs as root on Linux, Chrome
+  (its `--version` check included) runs as the `nobody` user, with its
+  sandbox on; elsewhere the step does not run as root at all. A Playwright
+  Chromium that refetch finds by searching is used only if it and the
+  folders above it belong to root or to you and nobody else can write to
+  them.
 - **Only pinned binaries run.** The plugin shim downloads the binary for
   its version from this repo's GitHub release and checks the archive and the
   binary against the sha256 values pinned in the plugin. It checks the
@@ -18,7 +25,10 @@ injection can choose it. These guarantees are security boundaries:
 - **Hooks never block.** refetch's hooks never deny, rewrite or block a tool
   call, and always exit 0.
 - **Page text is marked untrusted.** `fetch_page` puts page text between two
-  marker lines with a random nonce. A failure reason read from another
+  marker lines with a random nonce, so a page cannot fake where it ends, in
+  Markdown code blocks included. Links in the page keep their target only for
+  http, https and mailto; `javascript:` and `data:` links are shown as their
+  text. A failure reason read from another
   tool's result reaches Claude as a fixed category (an HTTP status, a
   timeout), and other error text as one short line.
 - **Local data stays local.** `events.db` (mode 0600) stores URLs without
@@ -43,6 +53,12 @@ injection can choose it. These guarantees are security boundaries:
   127.0.0.1. Another process on your machine could use it to reach public
   addresses for those few seconds; it never reaches anything the address
   check refuses.
+- **An upstream proxy, when you turn it on.** With `use_proxy`,
+  connections go through `HTTPS_PROXY`, and the proxy resolves host names
+  itself. refetch refuses non-public IP addresses and names that resolve on
+  this machine to non-public addresses, but a name that only the proxy can
+  resolve is the proxy's to check. Hosts `NO_PROXY` lists are dialled
+  directly, with the full check.
 - **What the address check cannot see.** An internal network on public IP
   space, or a service that trusts your IP address, looks public.
 

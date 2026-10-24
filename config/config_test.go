@@ -88,3 +88,15 @@ func TestDurationText(t *testing.T) {
 		t.Error("UnmarshalText accepted \"soon\"")
 	}
 }
+
+func TestUseProxyFromEnv(t *testing.T) {
+	t.Setenv("REFETCH_CONFIG", "/dev/null")
+	t.Setenv("REFETCH_USE_PROXY", "")
+	if c, err := Load(); err != nil || c.UseProxy {
+		t.Errorf("use_proxy on by default: %v", err)
+	}
+	t.Setenv("REFETCH_USE_PROXY", "true")
+	if c, err := Load(); err != nil || !c.UseProxy {
+		t.Errorf("REFETCH_USE_PROXY=true: %v", err)
+	}
+}

@@ -245,11 +245,11 @@ func TestFenceAndPrune(t *testing.T) {
 		t.Errorf("fence: %q / %q", a, b)
 	}
 	dir := t.TempDir()
-	oldPage, err := savePage(dir, "old.example.com", "old")
+	oldPage, err := savePage(dir, "old.example.com", "old", ".md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	newPage, err := savePage(dir, "new.example.com", "new")
+	newPage, err := savePage(dir, "new.example.com", "new", ".md")
 	if err != nil {
 		t.Fatal(err)
 	}

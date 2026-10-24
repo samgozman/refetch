@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Compatibility run: the same five claude -p sessions in four setups.
+"""Compatibility run: the same eight claude -p sessions in five setups.
 
 Setups: refetch alone, + RTK default, + RTK posthook, + context-mode, and
 no-chrome (alone, with REFETCH_CHROME pointing nowhere). Each session asks
 Claude to read one page of the local test server (e2e/server). Pass: every
-page ends with its secret word in the answer; in no-chrome the two pages that
-need the headless Chrome step (js, challenge-js) fail with the skip note.
+page ends with its secret word in the answer (links: the word on the page its
+link leads to, which needs the link's URL in fetch_page's result); in no-chrome the three pages
+that need the headless Chrome step (js, challenge-js, challenge-403) fail with
+the skip note.
 
 Usage: python3 e2e/run.py [--model sonnet] [--setups alone,context-mode] [--out DIR]
-Needs claude, go, and rtk for the RTK setups. Costs about 20 sessions.
+Needs claude, go, and rtk for the RTK setups. Costs about 40 sessions.
 """
 import argparse
 import concurrent.futures as cf
@@ -21,7 +23,9 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CASES = {"ok": "apple", "403": "banana", "challenge": "damson", "js": "elder", "slow": "fig", "challenge-js": "grape"}
+CASES = {"ok": "apple", "403": "banana", "challenge": "damson", "js": "elder", "slow": "fig", "challenge-js": "grape", "challenge-403": "honeydew", "links": "kiwi"}
+# Cases whose prompt is not the default one.
+PROMPTS = {"links": "Read {base}/links, open its link to the release notes and tell me the secret word on that page."}
 CTX = "mcp__plugin_context-mode_context-mode__"
 ALLOWED = ["WebFetch", "mcp__plugin_refetch_refetch__fetch_page",
            CTX + "ctx_fetch_and_index", CTX + "ctx_index", CTX + "ctx_search", CTX + "ctx_execute_file"]
@@ -60,7 +64,7 @@ def settings(setup: str, out: pathlib.Path) -> dict:
 def session(setup, case, base, env, cfg, out, model):
     work = out / setup / "work"
     work.mkdir(parents=True, exist_ok=True)
-    prompt = f"Read {base}/{case} and tell me the secret word on that page."
+    prompt = PROMPTS.get(case, "Read {base}/{case} and tell me the secret word on that page.").format(base=base, case=case)
     cmd = ["claude", "-p", prompt, "--model", model, "--setting-sources", "project",
            "--plugin-dir", str(ROOT), "--settings", json.dumps(cfg),
            "--allowedTools", *ALLOWED, "--output-format", "stream-json", "--verbose"]
@@ -114,7 +118,7 @@ def main():
                                            capture_output=True, text=True).stdout)
             print(f"\n## {setup}")
             for case, tools, ok, answer in results:
-                expect = not (setup == "no-chrome" and case in ("js", "challenge-js"))
+                expect = not (setup == "no-chrome" and case in ("js", "challenge-js", "challenge-403"))
                 mark = "ok  " if ok == expect else "FAIL"
                 failed |= ok != expect
                 print(f"  {mark} {case:10} answered={ok!s:5} tools={','.join(tools)}")

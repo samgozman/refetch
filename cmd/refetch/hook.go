@@ -68,6 +68,7 @@ func runHook(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		debug(err)
 		return
 	}
+	useProxy(cfg)
 	var in hookInput
 	if err := json.UnmarshalRead(stdin, &in); err != nil {
 		debug(err)

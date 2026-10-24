@@ -23,7 +23,9 @@ fetcher and the stats report. The repo root is also the Claude Code plugin.
 ## Layout
 
 - `fetch/`: public package; the clients, the public-only dialer, challenge
-  and JavaScript-only detection, HTML to text
+  and JavaScript-only detection, HTML to Markdown (`Markdown`, what
+  `fetch_page` returns) and to plain text (`Text`, which the detection
+  measures)
 - `render/`: the headless Chrome step: Chrome discovery, the local proxy on
   the public-only dialer, `--dump-dom` under `render_timeout`
 - `store/`: SQLite event log (`tool_calls`, `attempts`, `daily` roll-up)
@@ -41,6 +43,8 @@ fetcher and the stats report. The repo root is also the Claude Code plugin.
 - Every connection goes through the public-only dialer
   (`fetch.DialContext`); never add a client that bypasses it. Headless
   Chrome reaches the network only through `render`'s proxy on that dialer.
+  An upstream proxy (`use_proxy`, `fetch.UseProxy`) is a CONNECT tunnel
+  inside that dialer; never set `Proxy` on a transport.
 - Hooks and the MCP server must never break a session: report failures as
   tool errors, or exit 0 with empty output. Hooks finish in well under
   50 ms.

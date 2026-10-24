@@ -26,7 +26,7 @@ import (
 )
 
 // Words are the secret words the sessions must report, by path.
-var words = map[string]string{"/ok": "apple", "/403": "banana", "/challenge": "damson", "/js": "elder", "/slow": "fig", "/challenge-js": "grape"}
+var words = map[string]string{"/ok": "apple", "/403": "banana", "/challenge": "damson", "/js": "elder", "/slow": "fig", "/challenge-js": "grape", "/challenge-403": "honeydew", "/links": "", "/notes/r7k2q": "kiwi"}
 
 const challenge = `<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>` +
 	`<p>Verifying you are human. This may take a few seconds.</p><div id="challenge-stage"></div>` +
@@ -44,6 +44,13 @@ const jsShell = `<!doctype html><html><head><title>App</title></head><body>` +
 const jsChallenge = `<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>` +
 	`<p>Verifying you are human. This may take a few seconds.</p>` +
 	`<script>document.cookie="cleared=1; path=/"; setTimeout(function(){location.reload()},300)</script></body></html>`
+
+// links is an index that only names its pages, so a session can reach the
+// secret word only by following a link.
+const links = `<!doctype html><html><head><title>Orchard notes</title></head><body><main><h1>Orchard notes</h1>` +
+	`<p>Our notes for each season are on their own pages.</p><ul>` +
+	`<li><a href="/notes/b1x9z">Spring planting</a></li><li><a href="notes/r7k2q">Release notes for the harvest</a></li>` +
+	`<li><a href="/notes/m4p0c">Winter storage</a></li></ul></main></body></html>`
 
 // real is an ordinary article page of a realistic size (a few KB).
 func real(path, word string) string {
@@ -80,17 +87,23 @@ func main() {
 		switch {
 		case !ok:
 			http.NotFound(w, r)
+		case r.URL.Path == "/links" && chrome:
+			_, _ = w.Write([]byte(links))
 		case r.URL.Path == "/js":
 			_, _ = w.Write([]byte(jsShell))
-		case r.URL.Path == "/challenge-js":
+		case r.URL.Path == "/challenge-js" || r.URL.Path == "/challenge-403":
 			if c, err := r.Cookie("cleared"); err == nil && c.Value == "1" {
 				_, _ = w.Write([]byte(real(r.URL.Path, word)))
 				return
 			}
+			if r.URL.Path == "/challenge-403" { // as Cloudflare sends its managed challenge
+				w.Header().Set("Cf-Mitigated", "challenge")
+				w.WriteHeader(http.StatusForbidden)
+			}
 			_, _ = w.Write([]byte(jsChallenge))
 		case chrome || r.URL.Path == "/ok":
 			_, _ = w.Write([]byte(real(r.URL.Path, word)))
-		case r.URL.Path == "/403":
+		case r.URL.Path == "/403", r.URL.Path == "/links", strings.HasPrefix(r.URL.Path, "/notes/"):
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte("<html><head><title>403 Forbidden</title></head><body>Access denied</body></html>"))
 		case r.URL.Path == "/challenge":

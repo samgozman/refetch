@@ -32,7 +32,7 @@ const (
 const (
 	OutcomeOK         = "ok"
 	OutcomeRefused    = "refused"    // HTTP 403 or 429
-	OutcomeChallenge  = "challenge"  // HTTP 503 or a bot-challenge page
+	OutcomeChallenge  = "challenge"  // HTTP 503 or a bot-challenge page, even on a 403 (Cloudflare's is)
 	OutcomeNeedsJS    = "needs_js"   // an HTML shell whose content only JavaScript would render
 	OutcomeTimeout    = "timeout"    // the client's time budget ran out
 	OutcomeError      = "error"      // network error, other HTTP status, address refusal
@@ -68,6 +68,7 @@ type Attempt struct {
 type Page struct {
 	Body        []byte
 	ContentType string
+	URL         string    // where Body came from, after redirects; "" when unknown
 	Last        Attempt   // the attempt that produced Body, or the last failure
 	Attempts    []Attempt // every attempt of this call, in order
 }
@@ -87,7 +88,7 @@ type Fetcher struct {
 	robots        map[string]robotsEntry
 }
 
-type getter func(ctx context.Context, url string) (status int, body []byte, contentType string, err error)
+type getter func(ctx context.Context, url string) (reply, error)
 
 type robotsEntry struct {
 	data    *robotstxt.RobotsData // nil = allow all
@@ -134,7 +135,8 @@ func (f *Fetcher) Get(ctx context.Context, rawURL string) (Page, error) {
 func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error {
 	get := f.getter(client)
 	start := time.Now()
-	status, body, ct, err := get(ctx, rawURL)
+	r, err := get(ctx, rawURL)
+	status, body, ct := r.status, r.body, r.contentType
 	a := Attempt{URL: rawURL, Client: client, Status: status, Bytes: len(body), Duration: time.Since(start), Outcome: OutcomeOK}
 	switch {
 	case err != nil:
@@ -143,15 +145,18 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 			a.Outcome = OutcomeTimeout
 		}
 		a.Err = err.Error()
+	case strings.EqualFold(r.mitigated, "challenge") || Challenge(status, body):
+		a.Outcome = OutcomeChallenge
+		err = blockedError(fmt.Sprintf("challenge page (HTTP %d, %s client)", status, client))
 	case status == http.StatusForbidden || status == http.StatusTooManyRequests:
 		a.Outcome = OutcomeRefused
 		err = blockedError(fmt.Sprintf("refused (HTTP %d, %s client)", status, client))
-	case Challenge(status, body):
-		a.Outcome = OutcomeChallenge
-		err = blockedError(fmt.Sprintf("challenge page (HTTP %d, %s client)", status, client))
 	case status != http.StatusOK:
 		a.Outcome = OutcomeError
 		err = fmt.Errorf("HTTP %d (%s client)", status, client)
+	case NotText(ct, body) != "":
+		a.Outcome = OutcomeError
+		err = fmt.Errorf("%w (%s)", ErrNotText, NotText(ct, body))
 	case NeedsJS(body, ct):
 		a.Outcome = OutcomeNeedsJS
 		err = fmt.Errorf("page needs JavaScript to show its content (HTTP %d, %s client)", status, client)
@@ -161,7 +166,7 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	}
 	f.record(p, &a)
 	if err == nil {
-		p.Body, p.ContentType = body, ct
+		p.Body, p.ContentType, p.URL = body, ct, r.url
 	}
 	return err
 }
@@ -171,14 +176,14 @@ func (f *Fetcher) getter(client string) getter {
 		if f.chrome != nil {
 			return f.chrome
 		}
-		return func(ctx context.Context, u string) (int, []byte, string, error) {
+		return func(ctx context.Context, u string) (reply, error) {
 			return chromeGet(ctx, u, f.timeout())
 		}
 	}
 	if f.plain != nil {
 		return f.plain
 	}
-	return func(ctx context.Context, u string) (int, []byte, string, error) {
+	return func(ctx context.Context, u string) (reply, error) {
 		return plainGet(ctx, u, f.userAgent(), f.timeout())
 	}
 }
@@ -325,10 +330,10 @@ func (f *Fetcher) allowed(ctx context.Context, rawURL string) bool {
 	e, ok := f.robots[origin]
 	f.mu.Unlock()
 	if !ok || time.Since(e.fetched) > robotsTTL {
-		status, body, _, err := f.getter(ClientPlain)(ctx, origin+"/robots.txt")
+		r, err := f.getter(ClientPlain)(ctx, origin+"/robots.txt")
 		e = robotsEntry{fetched: time.Now()}
 		if err == nil {
-			if data, perr := robotstxt.FromStatusAndBytes(status, body); perr == nil {
+			if data, perr := robotstxt.FromStatusAndBytes(r.status, r.body); perr == nil {
 				e.data = data
 			}
 		}
@@ -350,8 +355,16 @@ func (f *Fetcher) allowed(ctx context.Context, rawURL string) bool {
 var dialer = net.Dialer{Timeout: 10 * time.Second, Control: publicOnly}
 
 // DialContext dials the way both clients do: public addresses only, checked
-// after DNS resolution. The headless Chrome step's proxy dials with it.
+// after DNS resolution, or through the proxy UseProxy set. The headless
+// Chrome step's proxy dials with it.
 func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	proxy, ok, err := proxyFor(address)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return dialProxied(ctx, proxy, address)
+	}
 	return dialer.DialContext(ctx, network, address)
 }
 
@@ -387,13 +400,7 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	if !isPublic(ip) {
-		return fmt.Errorf("%s is not a public address", ip)
-	}
-	if (!e2eLocal || !ip.IsLoopback()) && isLocal(ip) {
-		return fmt.Errorf("%s is not a public address: it is this machine's own", ip)
-	}
-	return nil
+	return checkAddr(ip)
 }
 
 // local caches this machine's interface addresses. A public address on an

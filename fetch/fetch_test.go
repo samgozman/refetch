@@ -14,24 +14,30 @@ import (
 )
 
 type page struct {
-	status int
-	body   string
-	err    error
+	status    int
+	body      string
+	err       error
+	ct        string // "text/html" when empty
+	mitigated string
 }
 
 func fake(pages map[string]page, calls *atomic.Int32) getter {
-	return func(_ context.Context, url string) (int, []byte, string, error) {
+	return func(_ context.Context, url string) (reply, error) {
 		if calls != nil {
 			calls.Add(1)
 		}
 		p, ok := pages[url]
 		switch {
 		case !ok:
-			return http.StatusNotFound, []byte("not found"), "text/plain", nil
+			return reply{status: http.StatusNotFound, body: []byte("not found"), contentType: "text/plain"}, nil
 		case p.err != nil:
-			return 0, nil, "", p.err
+			return reply{}, p.err
 		}
-		return p.status, []byte(p.body), "text/html", nil
+		ct := p.ct
+		if ct == "" {
+			ct = "text/html"
+		}
+		return reply{p.status, []byte(p.body), ct, p.mitigated, url}, nil
 	}
 }
 
@@ -39,6 +45,9 @@ func TestModes(t *testing.T) {
 	const u = "https://news.example.com/post"
 	refused := map[string]page{u: {status: 403, body: "denied"}}
 	challenge := map[string]page{u: {status: 200, body: "<html><title>Just a moment...</title>challenge-platform</html>"}}
+	cf403 := map[string]page{u: {status: 403, body: "<html><title>Just a moment...</title>challenge-platform</html>"}}
+	cfHeader := map[string]page{u: {status: 403, body: "<html>please wait</html>", mitigated: "challenge"}}
+	pdf := map[string]page{u: {status: 200, body: "%PDF-1.7\n\x00\x01binary", ct: "application/pdf"}}
 	good := map[string]page{u: {status: 200, body: "<p>release notes</p>"}}
 	tlsErr := map[string]page{u: {err: errors.New("tls: handshake failure")}}
 	timeout := map[string]page{u: {err: context.DeadlineExceeded}}
@@ -53,6 +62,10 @@ func TestModes(t *testing.T) {
 		"always, ok":                   {"", nil, good, "", []string{ClientChromeLike}, []string{OutcomeOK}},
 		"always, refused":              {"", good, refused, "refused (HTTP 403, chrome_like client)", []string{ClientChromeLike}, []string{OutcomeRefused}},
 		"always, challenge":            {"", good, challenge, "challenge page", []string{ClientChromeLike}, []string{OutcomeChallenge}},
+		"always, 403 challenge page":   {"", good, cf403, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
+		"always, cf-mitigated":         {"", good, cfHeader, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
+		"always, PDF":                  {"", good, pdf, "not a web page or text (application/pdf)", []string{ClientChromeLike}, []string{OutcomeError}},
+		"fallback on 403 challenge":    {ImpersonateFallback, cf403, good, "", []string{ClientPlain, ClientChromeLike}, []string{OutcomeChallenge, OutcomeOK}},
 		"always, TLS error to backup":  {"", good, tlsErr, "", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeError, OutcomeOK}},
 		"always, no backup on timeout": {"", good, timeout, "deadline", []string{ClientChromeLike}, []string{OutcomeTimeout}},
 		"always, no backup on DNS":     {"", good, dnsErr, "no such host", []string{ClientChromeLike}, []string{OutcomeError}},
@@ -146,17 +159,17 @@ func TestBothClientsRefuseNonPublicAddresses(t *testing.T) {
 	tls := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("secret")) }))
 	t.Cleanup(tls.Close)
 	gets := map[string]getter{
-		"plain": func(ctx context.Context, u string) (int, []byte, string, error) {
+		"plain": func(ctx context.Context, u string) (reply, error) {
 			return plainGet(ctx, u, DefaultUserAgent, 5*time.Second)
 		},
-		"chrome": func(ctx context.Context, u string) (int, []byte, string, error) {
+		"chrome": func(ctx context.Context, u string) (reply, error) {
 			return chromeGet(ctx, u, 5*time.Second)
 		},
 	}
 	for name, get := range gets {
 		for _, u := range []string{srv.URL, tls.URL} {
-			if _, body, _, err := get(t.Context(), u); err == nil || !strings.Contains(err.Error(), "not a public address") {
-				t.Errorf("%s client fetched %s: body %q, err %v", name, u, body, err)
+			if r, err := get(t.Context(), u); err == nil || !strings.Contains(err.Error(), "not a public address") {
+				t.Errorf("%s client fetched %s: body %q, err %v", name, u, r.body, err)
 			}
 		}
 	}
