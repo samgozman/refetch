@@ -166,14 +166,24 @@ func newFetchClient(cfg config.Config) *fetch.Fetcher {
 	}
 }
 
+// renderMode is fetch_page's render argument for one call.
+type renderMode int
+
+const (
+	renderAuto   renderMode = iota // headless Chrome for a challenge or a JavaScript-only page
+	renderNever                    // render: false
+	renderAlways                   // render: true, also for a page the HTTP clients read or were refused
+)
+
 // get fetches one page: the HTTP clients first, then the headless Chrome
-// step when they got a challenge or a JavaScript-only page. allowRender
-// false (fetch_page's render: false) skips that step for this call. All
-// attempts are recorded under one fetch id.
-func (fr *fetcher) get(ctx context.Context, url string, allowRender bool) (fetch.Page, error) {
+// step when they got a challenge or a JavaScript-only page, or always with
+// renderAlways. All attempts are recorded under one fetch id.
+func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
 	p, err := fr.f.Get(ctx, url)
-	if err != nil && (p.Last.Outcome == fetch.OutcomeChallenge || p.Last.Outcome == fetch.OutcomeNeedsJS) {
-		p, err = fr.renderStep(ctx, url, allowRender, p, err)
+	switch o := p.Last.Outcome; {
+	case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
+		mode == renderAlways && (err == nil || o == fetch.OutcomeRefused):
+		p, err = fr.renderStep(ctx, url, mode, p, err)
 	}
 	if fr.st != nil {
 		id := uuid.New().String()
@@ -191,14 +201,15 @@ func (fr *fetcher) get(ctx context.Context, url string, allowRender bool) (fetch
 }
 
 // renderStep runs step 2, or records why it did not run. A skipped step
-// leaves p.Last on the HTTP attempt, whose outcome the hand-off explains.
-func (fr *fetcher) renderStep(ctx context.Context, url string, allowRender bool, p fetch.Page, httpErr error) (fetch.Page, error) {
+// leaves p.Last on the HTTP attempt, whose outcome the hand-off explains;
+// so does a failed one after the HTTP clients read the page.
+func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, p fetch.Page, httpErr error) (fetch.Page, error) {
 	a := fetch.Attempt{URL: url, Host: p.Last.Host, Client: render.Client}
 	var dom []byte
 	switch {
 	case fr.renderOff:
 		a.Outcome = render.OutcomeSkippedOff
-	case !allowRender:
+	case mode == renderNever:
 		a.Outcome = render.OutcomeSkippedByCall
 	default:
 		start := time.Now()
@@ -229,6 +240,9 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, allowRender bool,
 		return p, nil
 	case render.OutcomeSkippedOff, render.OutcomeSkippedByCall, render.OutcomeNoChrome, render.OutcomeSkippedRoot:
 		return p, httpErr
+	}
+	if httpErr == nil {
+		return p, nil
 	}
 	p.Last = a
 	return p, fmt.Errorf("%w; then %s", httpErr, cmp.Or(a.Err, a.Outcome))

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Compatibility run: the same five claude -p sessions in four setups.
+"""Compatibility run: the same seven claude -p sessions in five setups.
 
 Setups: refetch alone, + RTK default, + RTK posthook, + context-mode, and
 no-chrome (alone, with REFETCH_CHROME pointing nowhere). Each session asks
 Claude to read one page of the local test server (e2e/server). Pass: every
-page ends with its secret word in the answer; in no-chrome the two pages that
-need the headless Chrome step (js, challenge-js) fail with the skip note.
+page ends with its secret word in the answer; in no-chrome the three pages
+that need the headless Chrome step (js, challenge-js, challenge-403) fail with
+the skip note.
 
 Usage: python3 e2e/run.py [--model sonnet] [--setups alone,context-mode] [--out DIR]
-Needs claude, go, and rtk for the RTK setups. Costs about 20 sessions.
+Needs claude, go, and rtk for the RTK setups. Costs about 35 sessions.
 """
 import argparse
 import concurrent.futures as cf
@@ -21,7 +22,7 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CASES = {"ok": "apple", "403": "banana", "challenge": "damson", "js": "elder", "slow": "fig", "challenge-js": "grape"}
+CASES = {"ok": "apple", "403": "banana", "challenge": "damson", "js": "elder", "slow": "fig", "challenge-js": "grape", "challenge-403": "honeydew"}
 CTX = "mcp__plugin_context-mode_context-mode__"
 ALLOWED = ["WebFetch", "mcp__plugin_refetch_refetch__fetch_page",
            CTX + "ctx_fetch_and_index", CTX + "ctx_index", CTX + "ctx_search", CTX + "ctx_execute_file"]
@@ -114,7 +115,7 @@ def main():
                                            capture_output=True, text=True).stdout)
             print(f"\n## {setup}")
             for case, tools, ok, answer in results:
-                expect = not (setup == "no-chrome" and case in ("js", "challenge-js"))
+                expect = not (setup == "no-chrome" and case in ("js", "challenge-js", "challenge-403"))
                 mark = "ok  " if ok == expect else "FAIL"
                 failed |= ok != expect
                 print(f"  {mark} {case:10} answered={ok!s:5} tools={','.join(tools)}")

@@ -141,14 +141,20 @@ show how often each path was taken. Step by step:
    looks like Chrome's (about 1 s, no JavaScript). A plain Go client is only
    its backup for the Chrome-like client's own TLS or protocol errors.
 4. For a challenge or JavaScript-only page, it runs your installed Chrome or
-   Chromium headless, for 15 s at most. A hard 403 or 429 skips this step,
-   and so does a machine without Chrome.
+   Chromium headless, for 15 s at most. A challenge counts even when it comes
+   as a 403, as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or
+   429 skips this step, and so does a machine without Chrome.
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 
-Claude can pass `render: false` to skip headless Chrome for one call, and
-`save: true` to get a file path and a short preview instead of the whole
-page in context.
+`fetch_page` returns web pages and text. A PDF, an image or another file
+gets a clear error instead of its bytes.
+
+Claude can pass `render: true` to read a page with headless Chrome even when
+the first step got it (for content that scripts fill in), `render: false` to
+skip headless Chrome for one call, and `save: true` to get a file path and a
+short preview instead of the whole page in context. If Chrome cannot read a
+page the first step got, the result is the first step's text, with a note.
 
 ### With context-mode and RTK
 

@@ -64,6 +64,14 @@ func TestFetchPage(t *testing.T) {
 		t.Errorf("fetch: %q, %v", text, err)
 	}
 
+	text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u, Render: new(true)})
+	if err != nil || !strings.Contains(text, "Chrome not found (install Google Chrome, or set REFETCH_CHROME). This is the HTTP client's text.") || !strings.Contains(text, "Release notes") {
+		t.Errorf("render: true without Chrome: %q, %v", text, err)
+	}
+	if text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u, Render: new(false)}); err != nil || strings.Contains(text, "headless") {
+		t.Errorf("render: false: %q, %v", text, err)
+	}
+
 	long := strings.Repeat("word ", 1000)
 	fp.page = okPage("<p>" + long + "</p>")
 	text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u, MaxChars: 10})

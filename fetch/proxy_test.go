@@ -55,6 +55,7 @@ func (p *connectProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func withProxy(t *testing.T, user *url.Userinfo) *connectProxy {
 	t.Helper()
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cf-Mitigated", "challenge")
 		_, _ = io.WriteString(w, "<html><body>through the proxy</body></html>")
 	}))
 	t.Cleanup(backend.Close)
@@ -70,19 +71,20 @@ func withProxy(t *testing.T, user *url.Userinfo) *connectProxy {
 
 func TestProxyTunnelsBothClients(t *testing.T) {
 	cp := withProxy(t, url.UserPassword("agent", "s3cret"))
-	for name, get := range map[string]func() (int, []byte, error){
-		"plain": func() (int, []byte, error) {
-			s, b, _, err := plainGet(t.Context(), "http://refetch-test.invalid/page", "refetch-test", 5*time.Second)
-			return s, b, err
+	for name, get := range map[string]func() (reply, error){
+		"plain": func() (reply, error) {
+			return plainGet(t.Context(), "http://refetch-test.invalid/page", "refetch-test", 5*time.Second)
 		},
-		"chrome_like": func() (int, []byte, error) {
-			s, b, _, err := chromeGet(t.Context(), "http://refetch-test.invalid/page", 5*time.Second)
-			return s, b, err
+		"chrome_like": func() (reply, error) {
+			return chromeGet(t.Context(), "http://refetch-test.invalid/page", 5*time.Second)
 		},
 	} {
-		status, body, err := get()
-		if err != nil || status != http.StatusOK || !strings.Contains(string(body), "through the proxy") {
-			t.Errorf("%s through the proxy: %d %q %v", name, status, body, err)
+		r, err := get()
+		if err != nil || r.status != http.StatusOK || !strings.Contains(string(r.body), "through the proxy") {
+			t.Errorf("%s through the proxy: %d %q %v", name, r.status, r.body, err)
+		}
+		if r.mitigated != "challenge" {
+			t.Errorf("%s: cf-mitigated = %q", name, r.mitigated)
 		}
 	}
 	cp.mu.Lock()

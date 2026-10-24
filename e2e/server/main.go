@@ -26,7 +26,7 @@ import (
 )
 
 // Words are the secret words the sessions must report, by path.
-var words = map[string]string{"/ok": "apple", "/403": "banana", "/challenge": "damson", "/js": "elder", "/slow": "fig", "/challenge-js": "grape"}
+var words = map[string]string{"/ok": "apple", "/403": "banana", "/challenge": "damson", "/js": "elder", "/slow": "fig", "/challenge-js": "grape", "/challenge-403": "honeydew"}
 
 const challenge = `<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>` +
 	`<p>Verifying you are human. This may take a few seconds.</p><div id="challenge-stage"></div>` +
@@ -82,10 +82,14 @@ func main() {
 			http.NotFound(w, r)
 		case r.URL.Path == "/js":
 			_, _ = w.Write([]byte(jsShell))
-		case r.URL.Path == "/challenge-js":
+		case r.URL.Path == "/challenge-js" || r.URL.Path == "/challenge-403":
 			if c, err := r.Cookie("cleared"); err == nil && c.Value == "1" {
 				_, _ = w.Write([]byte(real(r.URL.Path, word)))
 				return
+			}
+			if r.URL.Path == "/challenge-403" { // as Cloudflare sends its managed challenge
+				w.Header().Set("Cf-Mitigated", "challenge")
+				w.WriteHeader(http.StatusForbidden)
 			}
 			_, _ = w.Write([]byte(jsChallenge))
 		case chrome || r.URL.Path == "/ok":

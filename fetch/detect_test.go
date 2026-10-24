@@ -55,3 +55,25 @@ func TestNeedsJSOutcome(t *testing.T) {
 		t.Errorf("err = %v, attempts = %+v", err, p.Attempts)
 	}
 }
+
+func TestNotText(t *testing.T) {
+	for _, tc := range []struct {
+		ct, body, want string
+	}{
+		{"text/html; charset=utf-8", "<p>hi</p>", ""},
+		{"text/plain", "hello", ""},
+		{"application/json", `{"a":1}`, ""},
+		{"application/rss+xml", "<rss/>", ""},
+		{"application/pdf", "%PDF-1.7", "application/pdf"},
+		{"text/plain", "%PDF-1.4 mislabeled", "application/pdf"},
+		{"image/png; q=1", "\x89PNG", "image/png"},
+		{"application/octet-stream", "\x00\x01", "application/octet-stream"},
+		{"", "<!doctype html><p>no type</p>", ""},
+		{"", "%PDF-1.7", "application/pdf"},
+		{"", "\x89PNG\r\n\x1a\n", "image/png"},
+	} {
+		if got := NotText(tc.ct, []byte(tc.body)); got != tc.want {
+			t.Errorf("NotText(%q, %q) = %q, want %q", tc.ct, tc.body, got, tc.want)
+		}
+	}
+}
