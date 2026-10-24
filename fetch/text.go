@@ -83,8 +83,12 @@ func isHTML(body []byte, contentType string) bool {
 
 // Clip cuts s to n runes, marking the cut.
 func Clip(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "\n[truncated]"
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i] + "\n[truncated]"
+		}
+		count++
 	}
 	return s
 }

@@ -41,6 +41,8 @@ func TestMarkdown(t *testing.T) {
 		{"pre without its Copy button", "<pre><button>Copy</button><code>go test ./...</code></pre>", "```\ngo test ./...\n```"},
 		{"hidden rows and cells", `<table><tr><th>a<th>b<th hidden>secret</tr><tr><td>1<td>2</tr><tr style="display:none"><td>secret<td>secret</tr></table>`,
 			"| a | b |\n| --- | --- |\n| 1 | 2 |"},
+		{"userinfo dropped", `<a href="https://good.example@evil.example/x">good.example</a>`, "[good.example](https://evil.example/x)"},
+		{"ol start out of range", `<ol start="-9223372036854775808"><li>a</li></ol><ol start="7"><li>b</li></ol>`, "1. a\n\n7. b"},
 		{"query order kept", `<a href="https://example.com/s?q=a%20b&utm_x=1&b=2">s</a>`, "[s](https://example.com/s?q=a%20b&b=2)"},
 		{"custom elements are blocks", "<react-app><span><div>one</div><div>two</div></span></react-app>", "one\n\ntwo"},
 		{"click-through links unwrap", `<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgo.dev%2Fdoc&rut=abc">Go docs</a> <a href="https://www.google.com/url?q=https://pkg.go.dev/&sa=U">pkg</a> <a href="/search?q=https://x.example/">search</a>`,
@@ -86,6 +88,8 @@ func TestMarkdownStaysLinear(t *testing.T) {
 		"colspan":    "<table><tr><td>a<td>b" + fill("<tr><td colspan=1000>x"),
 		"deep quote": strings.Repeat("<blockquote>", 150) + fill("a<br>"),
 		"deep list":  strings.Repeat("<ul><li>", 150) + fill("a<br>"),
+		"bare items": strings.Repeat("<li><section>", 95) + fill("a<br>"),
+		"ol start":   strings.Repeat(`<ol start="999999999"><li>`, 6) + fill("a<br>"),
 	} {
 		if out := Markdown([]byte(page), "text/html", nil); len(out) > 4*len(page) {
 			t.Errorf("%s: %d bytes of Markdown from %d bytes of HTML", name, len(out), len(page))

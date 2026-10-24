@@ -74,6 +74,7 @@ type markdown struct {
 	lastLink string // the last link target shown, so a repeat shows only its text
 	quotes   int    // blockquotes open
 	lists    int    // lists open
+	items    int    // list items open, inside a list or not
 }
 
 // markBlocks fills hasBlock and reports whether n is or holds a block.
@@ -166,7 +167,7 @@ func (m *markdown) list(n *html.Node, depth int) string {
 	defer func() { m.lists-- }()
 	var items []string
 	i := 1
-	if s, err := strconv.Atoi(attr(n, "start")); err == nil {
+	if s, err := strconv.Atoi(attr(n, "start")); err == nil && s >= 0 && s < 1e6 {
 		i = s
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -197,11 +198,13 @@ func (m *markdown) list(n *html.Node, depth int) string {
 }
 
 func (m *markdown) item(n *html.Node, depth int, marker string) string {
+	m.items++
 	s := m.blocks(n, depth, "\n")
+	m.items--
 	switch {
 	case s == "":
 		return ""
-	case m.lists > maxNest:
+	case m.items >= maxNest:
 		return marker + s
 	}
 	return marker + strings.TrimPrefix(indent(strings.Repeat(" ", len(marker)), s), strings.Repeat(" ", len(marker)))
@@ -422,6 +425,7 @@ func (m *markdown) href(raw string) string {
 	if u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "mailto" {
 		return ""
 	}
+	u.User = nil          // https://good.example@evil.example/ goes to evil.example
 	if u.RawQuery != "" { // filtered pair by pair, so the rest keeps its order and encoding
 		pairs := strings.Split(u.RawQuery, "&")
 		kept := slices.DeleteFunc(slices.Clone(pairs), func(p string) bool {
