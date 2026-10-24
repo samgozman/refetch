@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -114,5 +116,42 @@ func TestPermissionAdviceInCloud(t *testing.T) {
 	c := e.permissionCheck()
 	if c.ok || !strings.Contains(c.detail, `Add to the repository's .claude/settings.json: "permissions": {"allow": ["mcp__refetch__fetch_page"]}`) {
 		t.Errorf("cloud permission advice: %+v", c)
+	}
+}
+
+func TestOwnHooksCheck(t *testing.T) {
+	e := claudeEnv{home: t.TempDir(), cwd: t.TempDir(), config: t.TempDir()}
+	if c := e.ownHooksCheck(); c.ok || !strings.Contains(c.detail, "no refetch hook for SessionStart, PreToolUse, PostToolUse, PostToolUseFailure") {
+		t.Errorf("no hooks: %+v", c)
+	}
+	settings := `{"hooks": {
+		"SessionStart": [{"hooks": [{"type": "command", "command": "/opt/refetch/bin/refetch hook SessionStart"}]}],
+		"PreToolUse": [{"matcher": "WebFetch", "hooks": [{"type": "command", "command": "/opt/refetch/bin/refetch hook PreToolUse"}]}],
+		"PostToolUse": [{"matcher": "WebFetch", "hooks": [{"type": "command", "command": "/opt/refetch/bin/refetch hook PostToolUse"}]}]
+	}}`
+	if err := os.MkdirAll(filepath.Join(e.cwd, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.cwd, ".claude", "settings.json"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.ownHooksCheck(); c.ok || !strings.Contains(c.detail, "no refetch hook for PostToolUseFailure in") {
+		t.Errorf("one hook missing: %+v", c)
+	}
+	settings = strings.Replace(settings, "}]\n\t}}", `}],
+		"PostToolUseFailure": [{"matcher": "WebFetch", "hooks": [{"type": "command", "command": "/opt/refetch/bin/refetch hook PostToolUseFailure"}]}]
+	}}`, 1)
+	if err := os.WriteFile(filepath.Join(e.cwd, ".claude", "settings.json"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.ownHooksCheck(); !c.ok || !strings.HasPrefix(c.detail, "refetch's hooks are in ") {
+		t.Errorf("all hooks: %+v", c)
+	}
+}
+
+func TestVersionOfADevelopmentCheckout(t *testing.T) {
+	t.Setenv("REFETCH_PLUGIN_VERSION", "0.0.0")
+	if c := versionCheck(); !c.ok {
+		t.Errorf("REFETCH_BIN with a development checkout: %+v", c)
 	}
 }

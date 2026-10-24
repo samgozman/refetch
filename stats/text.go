@@ -40,7 +40,7 @@ func (r Report) WriteText(w io.Writer, h Header) {
 	p("refetch %s · %s to %s%s\n\n", h.Version, r.From.Format("2 Jan"), r.To.Format("2 Jan 2006"), sessions)
 
 	if r.Reads == 0 && r.Direct == 0 {
-		p("No web reads recorded yet: the refetch plugin's hooks record WebFetch and ctx_fetch_and_index calls.\n")
+		p("No web reads recorded yet: refetch's hooks record WebFetch and ctx_fetch_and_index calls.\n")
 	} else {
 		line(0, "Web reads (WebFetch + ctx_fetch_and_index)", r.Reads, "")
 		line(1, "ok first time", r.OKFirst, pct(r.OKFirst, r.Reads, ""))

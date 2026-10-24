@@ -42,7 +42,11 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	}
 	proxy := useProxy(cfg)
 	checks := []check{versionCheck(), updateCheck(ctx), cfgCheck, networkCheck(ctx, cfg, proxy)}
-	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
+	checks = append(checks, dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck())
+	if config.Cloud() {
+		checks = append(checks, env.ownHooksCheck())
+	}
+	checks = append(checks, env.hooksCheck())
 	for _, c := range checks {
 		mark := "✓"
 		if !c.ok {
@@ -87,6 +91,8 @@ func versionCheck() check {
 	switch {
 	case plugin == "":
 		return check{true, "version", "refetch " + bin + " (not run through the plugin)"}
+	case plugin == "0.0.0":
+		return check{true, "version", "refetch " + bin + ", with the plugin files of a development checkout"}
 	case strings.TrimPrefix(bin, "v") != plugin:
 		return check{false, "version", fmt.Sprintf("binary %s, plugin %s: run /reload-plugins, or check REFETCH_BIN", bin, plugin)}
 	}
@@ -329,6 +335,35 @@ func (e claudeEnv) permissionCheck() check {
 	}
 	return check{false, "permission", "fetch_page is not allowed, so every rescue waits on a prompt (and fails under claude -p).\n" +
 		"Add to " + where + `: "permissions": {"allow": ["` + fetchPageTool() + `"]}`}
+}
+
+// ownHooksCheck finds refetch's hooks in the settings files, where a cloud
+// session's project install puts them (the plugin brings its own).
+func (e claudeEnv) ownHooksCheck() check {
+	var found, missing []string
+	settings := e.settings()
+	for _, ev := range []string{"SessionStart", "PreToolUse", "PostToolUse", "PostToolUseFailure"} {
+		in := ""
+		for _, p := range slices.Sorted(maps.Keys(settings)) {
+			for _, g := range settings[p].Hooks[ev] {
+				for _, h := range g.Hooks {
+					if strings.Contains(h.Command, "refetch hook "+ev) {
+						in = e.short(p)
+					}
+				}
+			}
+		}
+		if in == "" {
+			missing = append(missing, ev)
+		} else if !slices.Contains(found, in) {
+			found = append(found, in)
+		}
+	}
+	if len(missing) > 0 {
+		return check{false, "hooks", "no refetch hook for " + strings.Join(missing, ", ") + " in the repository's .claude/settings.json.\n" +
+			"See https://github.com/samgozman/refetch/blob/main/docs/cloud-sessions.md"}
+	}
+	return check{true, "hooks", "refetch's hooks are in " + strings.Join(found, ", ")}
 }
 
 // hooksCheck lists other hooks that also run on WebFetch or refetch's tool.
