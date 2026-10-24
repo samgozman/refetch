@@ -350,8 +350,16 @@ func (f *Fetcher) allowed(ctx context.Context, rawURL string) bool {
 var dialer = net.Dialer{Timeout: 10 * time.Second, Control: publicOnly}
 
 // DialContext dials the way both clients do: public addresses only, checked
-// after DNS resolution. The headless Chrome step's proxy dials with it.
+// after DNS resolution, or through the proxy UseProxy set. The headless
+// Chrome step's proxy dials with it.
 func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	proxy, ok, err := proxyFor(address)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return dialProxied(ctx, proxy, address)
+	}
 	return dialer.DialContext(ctx, network, address)
 }
 
@@ -387,13 +395,7 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	if !isPublic(ip) {
-		return fmt.Errorf("%s is not a public address", ip)
-	}
-	if (!e2eLocal || !ip.IsLoopback()) && isLocal(ip) {
-		return fmt.Errorf("%s is not a public address: it is this machine's own", ip)
-	}
-	return nil
+	return checkAddr(ip)
 }
 
 // local caches this machine's interface addresses. A public address on an

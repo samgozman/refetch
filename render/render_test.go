@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -131,5 +132,17 @@ func TestCapped(t *testing.T) {
 	_, _ = c.Write([]byte("defgh"))
 	if c.buf.String() != "abcde" {
 		t.Errorf("capped = %q", c.buf.String())
+	}
+}
+
+func TestNoUsableSandbox(t *testing.T) {
+	chrome := filepath.Join(chromeDir(t), "chrome")
+	script := "#!/bin/sh\necho 'FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!' >&2\nexit 134\n"
+	if err := os.WriteFile(chrome, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Renderer{Chrome: chrome, Timeout: 5 * time.Second, dial: loopbackDial}
+	if _, err := r.Render(t.Context(), "https://example.com/"); !errors.Is(err, ErrSandbox) {
+		t.Errorf("Chrome without a sandbox: %v", err)
 	}
 }

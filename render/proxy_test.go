@@ -103,7 +103,7 @@ func TestName(t *testing.T) {
 	if got := Name(t.Context(), ""); got != "" {
 		t.Errorf("no Chrome: %q", got)
 	}
-	dir := t.TempDir()
+	dir := chromeDir(t)
 	for file, want := range map[string]string{"chromium": "Chromium 151", "google-chrome": "Chrome 150", "broken-chrome": "Chrome"} {
 		script := "#!/bin/sh\necho 'Google Chrome 150.0.7000.1'\n"
 		switch file {
