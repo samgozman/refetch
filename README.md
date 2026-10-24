@@ -119,7 +119,7 @@ flowchart TD
     subgraph FetchPage ["fetch_page, refetch's MCP tool"]
         Client["1. Chrome-like client<br/>Chrome TLS fingerprint, about 1 s"]
         Client -- "challenge or<br/>JavaScript-only page" --> Headless["2. Headless Chrome<br/>your installed Chrome, 15 s at most"]
-        Client -- "page" --> Text["Page text"]
+        Client -- "page" --> Text["Page as Markdown"]
         Headless -- "page" --> Text
         Client -- "HTTP 403/429<br/>or error" --> Handoff["Hand-off: why it failed"]
         Headless -- "still blocked" --> Handoff
@@ -147,13 +147,19 @@ show how often each path was taken. Step by step:
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 
-`fetch_page` returns web pages and text. A PDF, an image or another file
-gets a clear error instead of its bytes.
+`fetch_page` returns a page as Markdown: headings, lists, links, tables and
+code blocks kept, scripts and hidden elements dropped. Links are absolute, and
+search engines' click-through links point at their targets, so Claude can
+follow a search result or a "next page" link. Only http, https and mailto
+links keep their target, and tracking parameters (`utm_*`, `fbclid`, `gclid`)
+are dropped. Pass `format: "text"` for plain text instead. A PDF, an image or
+another file gets a clear error instead of its bytes.
 
 Claude can pass `render: true` to read a page with headless Chrome even when
 the first step got it (for content that scripts fill in), `render: false` to
 skip headless Chrome for one call, and `save: true` to get a file path and a
-short preview instead of the whole page in context. If Chrome cannot read a
+short preview instead of the whole page in context (the file is `.md`, or
+`.txt` with `format: "text"`). If Chrome cannot read a
 page the first step got, the result is the first step's text, with a note.
 
 ### With context-mode and RTK

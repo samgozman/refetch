@@ -68,6 +68,7 @@ type Attempt struct {
 type Page struct {
 	Body        []byte
 	ContentType string
+	URL         string    // where Body came from, after redirects; "" when unknown
 	Last        Attempt   // the attempt that produced Body, or the last failure
 	Attempts    []Attempt // every attempt of this call, in order
 }
@@ -165,7 +166,7 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	}
 	f.record(p, &a)
 	if err == nil {
-		p.Body, p.ContentType = body, ct
+		p.Body, p.ContentType, p.URL = body, ct, r.url
 	}
 	return err
 }

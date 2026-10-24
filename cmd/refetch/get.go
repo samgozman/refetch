@@ -17,6 +17,7 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	maxChars := fs.Int("max-chars", defaultMaxChars, "text limit in characters (0 = no limit)")
 	impersonate := fs.String("impersonate", cfg.Impersonate, "always, fallback or off")
 	raw := fs.Bool("raw", false, "print the response body instead of its text")
+	format := fs.String("format", formatMarkdown, "markdown or text")
 	allowRender := fs.Bool("render", true, "run the headless Chrome step for a challenge or JavaScript-only page")
 	forceRender := fs.Bool("force-render", false, "run the headless Chrome step for every page")
 	fs.Usage = func() {
@@ -29,6 +30,9 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	if fs.NArg() != 1 {
 		fs.Usage()
 		return errors.New("get takes exactly one URL")
+	}
+	if *format != formatMarkdown && *format != formatText {
+		return fmt.Errorf("-format is %s or %s", formatMarkdown, formatText)
 	}
 	cfg.Impersonate = *impersonate
 	if err := cfg.Validate(); err != nil {
@@ -59,7 +63,7 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	_, _ = fmt.Fprintf(stderr, "won: %s\n\n", clientNames[p.Last.Client])
 	out := string(p.Body)
 	if !*raw {
-		out = fetch.Text(p.Body, p.ContentType)
+		out = pageText(p, fs.Arg(0), *format)
 	}
 	if *maxChars > 0 {
 		out = fetch.Clip(out, *maxChars)

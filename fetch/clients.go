@@ -29,11 +29,11 @@ var chromeHeaders = fhttp.Header{
 }
 
 // reply is one HTTP response, cut at MaxBytes; mitigated is Cloudflare's
-// cf-mitigated header.
+// cf-mitigated header, url the address after redirects.
 type reply struct {
-	status                 int
-	body                   []byte
-	contentType, mitigated string
+	status                      int
+	body                        []byte
+	contentType, mitigated, url string
 }
 
 // chromeGet fetches with a Chrome 150 TLS and HTTP/2 fingerprint. It shares
@@ -72,7 +72,7 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
-	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated")}, err
+	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 
 var plainClient = &http.Client{
@@ -96,7 +96,7 @@ func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Durati
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
-	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated")}, err
+	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 
 func checkRedirect(u *url.URL, hops int) error {

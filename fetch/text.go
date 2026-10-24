@@ -40,7 +40,7 @@ var blankLines = regexp.MustCompile(`\n\s*\n+`)
 // Text returns readable text: HTML without scripts, styles and tags;
 // other types as is.
 func Text(body []byte, contentType string) string {
-	if !strings.Contains(contentType, "html") && !bytes.HasPrefix(bytes.TrimSpace(body), []byte("<")) {
+	if !isHTML(body, contentType) {
 		return string(body)
 	}
 	var b strings.Builder
@@ -73,6 +73,12 @@ func Text(body []byte, contentType string) string {
 		case html.SelfClosingTagToken, html.CommentToken, html.DoctypeToken:
 		}
 	}
+}
+
+// isHTML reports a body to read as HTML: its type says so, or it starts
+// with a tag.
+func isHTML(body []byte, contentType string) bool {
+	return strings.Contains(contentType, "html") || bytes.HasPrefix(bytes.TrimSpace(body), []byte("<"))
 }
 
 // Clip cuts s to n runes, marking the cut.

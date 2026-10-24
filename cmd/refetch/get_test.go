@@ -72,6 +72,27 @@ func TestFetchPage(t *testing.T) {
 		t.Errorf("render: false: %q, %v", text, err)
 	}
 
+	fp.page = okPage(`<h2>Notes</h2><p>See <a href="/v2">the v2 notes</a>.</p>`)
+	fp.page.URL = "https://news.example.com/blog/notes"
+	text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u})
+	if err != nil || !strings.Contains(text, "## Notes\n\nSee [the v2 notes](https://news.example.com/v2).") {
+		t.Errorf("markdown: %q, %v", text, err)
+	}
+	text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u, Format: "text"})
+	if err != nil || !strings.Contains(text, "Notes \nSee the v2 notes .") {
+		t.Errorf("text: %q, %v", text, err)
+	}
+	if _, err := fetchPage(t.Context(), fr, dir, fetchInput{URL: u, Format: "html"}); err == nil || !strings.Contains(err.Error(), `format is "markdown" or "text"`) {
+		t.Errorf("an unknown format: %v", err)
+	}
+	for format, ext := range map[string]string{"": ".md", "text": ".txt"} {
+		text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u, Save: true, Format: format})
+		if err != nil || !strings.Contains(text, ext+"\nFirst 2000 characters") {
+			t.Errorf("save as %q: %q, %v", format, text, err)
+		}
+	}
+	fp.page = okPage(article)
+
 	long := strings.Repeat("word ", 1000)
 	fp.page = okPage("<p>" + long + "</p>")
 	text, err = fetchPage(t.Context(), fr, dir, fetchInput{URL: u, MaxChars: 10})
@@ -120,6 +141,18 @@ func TestRunGet(t *testing.T) {
 	}
 	if code, _, errOut := get("--impersonate", "sometimes", u); code != 1 || !strings.Contains(errOut, "impersonate") {
 		t.Errorf("bad --impersonate: %d %q", code, errOut)
+	}
+	if code, out, _ := get(u); code != 0 || !strings.Contains(out, "# Release notes") {
+		t.Errorf("get prints Markdown: %d %q", code, out)
+	}
+	if code, out, _ := get("--format", "text", u); code != 0 || strings.Contains(out, "# Release notes") || !strings.Contains(out, "Release notes") {
+		t.Errorf("get --format text: %d %q", code, out)
+	}
+	if code, _, errOut := get("--format", "html", u); code != 1 || !strings.Contains(errOut, "-format is markdown or text") {
+		t.Errorf("bad --format: %d %q", code, errOut)
+	}
+	if code, _, errOut := get("--force-render", u); code != 0 || !strings.Contains(errOut, "This is the HTTP client's text.") {
+		t.Errorf("get --force-render without Chrome: %d %q", code, errOut)
 	}
 
 	// A JavaScript-only page with the headless step off: the skip note.
