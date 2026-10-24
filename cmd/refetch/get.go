@@ -18,6 +18,7 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	impersonate := fs.String("impersonate", cfg.Impersonate, "always, fallback or off")
 	raw := fs.Bool("raw", false, "print the response body instead of its text")
 	allowRender := fs.Bool("render", true, "run the headless Chrome step for a challenge or JavaScript-only page")
+	forceRender := fs.Bool("force-render", false, "run the headless Chrome step for every page")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(stderr, "Usage: refetch get [flags] <url>\n\nFetches one page, prints each step to stderr and the text to stdout.")
 		fs.PrintDefaults()
@@ -35,7 +36,14 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	}
 	fr := newFetcher(ctx, cfg, "cli", stderr)
 	defer fr.close()
-	p, err := fr.get(ctx, fs.Arg(0), *allowRender)
+	mode := renderAuto
+	switch {
+	case !*allowRender:
+		mode = renderNever
+	case *forceRender:
+		mode = renderAlways
+	}
+	p, err := fr.get(ctx, fs.Arg(0), mode)
 	for _, a := range p.Attempts {
 		_, _ = fmt.Fprintf(stderr, "%-13s %-15s HTTP %-3d %8d B %6.2fs  %s\n", a.Client, a.Outcome, a.Status, a.Bytes, a.Duration.Seconds(), a.Err)
 	}
@@ -44,6 +52,9 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 			_, _ = fmt.Fprintln(stderr, note)
 		}
 		return err
+	}
+	if note := renderNote(p); note != "" {
+		_, _ = fmt.Fprintln(stderr, note)
 	}
 	_, _ = fmt.Fprintf(stderr, "won: %s\n\n", clientNames[p.Last.Client])
 	out := string(p.Body)
