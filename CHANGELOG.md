@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/samgozman/refetch/compare/v0.1.1...v0.2.0) (2026-10-24)
+
+
+### Features
+
+* fetch_page render true forces headless Chrome, even for a page the HTTP clients read ([#6](https://github.com/samgozman/refetch/issues/6)) ([b5996a6](https://github.com/samgozman/refetch/commit/b5996a66624b54bf4eae28fb73fe1fb42dfd001c))
+* fetch_page returns Markdown, links and tables kept ([#7](https://github.com/samgozman/refetch/issues/7)) ([714fd7f](https://github.com/samgozman/refetch/commit/714fd7f410b278b06e56bb25d282d21fd856687c))
+* run in Linux containers ([#4](https://github.com/samgozman/refetch/issues/4)) ([0cf778e](https://github.com/samgozman/refetch/commit/0cf778eabf2d4758eefed3b2442786496a995c9f))
+
+
+### Bug Fixes
+
+* refuse PDFs, images and other files with a clear error instead of their bytes ([#6](https://github.com/samgozman/refetch/issues/6)) ([b5996a6](https://github.com/samgozman/refetch/commit/b5996a66624b54bf4eae28fb73fe1fb42dfd001c))
+* send a Cloudflare challenge that arrives as HTTP 403 to headless Chrome ([#6](https://github.com/samgozman/refetch/issues/6)) ([b5996a6](https://github.com/samgozman/refetch/commit/b5996a66624b54bf4eae28fb73fe1fb42dfd001c))
+
 ## [0.1.1](https://github.com/samgozman/refetch/compare/v0.1.0...v0.1.1) (2026-10-22)
 
 
