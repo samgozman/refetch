@@ -204,7 +204,20 @@ func Version(ctx context.Context, chrome string) string {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, chrome, "--version").Output()
+	cmd := exec.CommandContext(ctx, chrome, "--version")
+	if os.Geteuid() == 0 { // as root, even this runs only as nobody, in a throwaway home
+		home, err := os.MkdirTemp("", "refetch-version-")
+		if err != nil {
+			return ""
+		}
+		defer func() { _ = os.RemoveAll(home) }()
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		if err := runAsNobody(cmd, home); err != nil {
+			versions[chrome] = ""
+			return ""
+		}
+	}
+	out, err := cmd.Output()
 	v := ""
 	if err == nil {
 		v = chromeVersion.FindString(string(out))

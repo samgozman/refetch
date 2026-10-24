@@ -44,3 +44,21 @@ func TestPlaywrightChrome(t *testing.T) {
 		t.Errorf("playwrightChrome = %q, want the newest full Chromium %q", got, want)
 	}
 }
+
+func TestPlaywrightChromeOthersCanWrite(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "chromium-1200", "chrome-linux64", "chrome")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "chromium-1200"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", dir)
+	if got := playwrightChrome(t.TempDir()); got == bin {
+		t.Errorf("a Chromium in a folder others can write was used: %s", got)
+	}
+}

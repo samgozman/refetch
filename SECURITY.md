@@ -12,8 +12,11 @@ injection can choose it. These guarantees are security boundaries:
   same check. Behind an upstream proxy (see below), the check runs before
   each connection instead.
 - **Chrome never runs as root.** When refetch runs as root on Linux, Chrome
-  runs as the `nobody` user, with its sandbox on; elsewhere the step does
-  not run as root at all.
+  (its `--version` check included) runs as the `nobody` user, with its
+  sandbox on; elsewhere the step does not run as root at all. A Playwright
+  Chromium that refetch finds by searching is used only if it and the
+  folders above it belong to root or to you and nobody else can write to
+  them.
 - **Only pinned binaries run.** The plugin shim downloads the binary for
   its version from this repo's GitHub release and checks the archive and the
   binary against the sha256 values pinned in the plugin. It checks the

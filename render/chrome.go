@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"syscall"
 )
 
 // macOSApps are the standard install paths, most common first.
@@ -60,13 +61,38 @@ func playwrightChrome(home string) string {
 			found, _ := filepath.Glob(filepath.Join(dir, pattern))
 			slices.SortFunc(found, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(b, a)) })
 			for _, p := range found {
-				if isExec(p) {
+				if isExec(p) && ownedSafely(p) {
 					return p
 				}
 			}
 		}
 	}
 	return ""
+}
+
+// ownedSafely reports that p and every folder above it belong to root or
+// to this user and that nobody else can write to them, so a Chromium found
+// by searching (not named by the user) was not planted by another account.
+func ownedSafely(p string) bool {
+	euid := uint32(os.Geteuid()) //nolint:gosec // a uid is never negative
+	for {
+		fi, err := os.Lstat(p) //nolint:gosec // p is a Playwright build found under a fixed folder, or a folder above it
+		if err != nil {
+			return false
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		// A sticky folder such as /tmp is fine above the build: others
+		// cannot replace what they do not own there.
+		sticky := fi.IsDir() && fi.Mode()&os.ModeSticky != 0
+		if !ok || (st.Uid != 0 && st.Uid != euid) || (fi.Mode().Perm()&0o022 != 0 && !sticky) {
+			return false
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return true
+		}
+		p = parent
+	}
 }
 
 func isExec(p string) bool {

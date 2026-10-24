@@ -95,8 +95,8 @@ func TestProxyTunnelsBothClients(t *testing.T) {
 
 func TestProxyStillRefusesNonPublicTargets(t *testing.T) {
 	cp := withProxy(t, nil)
-	for _, addr := range []string{"127.0.0.1:80", "10.1.2.3:443", "[::1]:443", "localhost:80", "app.localhost:443"} {
-		if _, err := DialContext(t.Context(), "tcp", addr); err == nil || !strings.Contains(err.Error(), "not a public address") {
+	for _, addr := range []string{"127.0.0.1:80", "10.1.2.3:443", "[::1]:443", "localhost:80", "app.localhost:443", "0x7f.1:80", "2130706433:443", "127.1:80", "0177.0.0.1:80"} {
+		if _, err := DialContext(t.Context(), "tcp", addr); err == nil || !strings.Contains(err.Error(), "not a public address") && !strings.Contains(err.Error(), "not a host name refetch can check") {
 			t.Errorf("dial %s through the proxy: %v", addr, err)
 		}
 	}

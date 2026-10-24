@@ -124,6 +124,11 @@ func checkTarget(ctx context.Context, address string) error {
 	if name == "localhost" || strings.HasSuffix(name, ".localhost") {
 		return fmt.Errorf("%s is not a public address", host)
 	}
+	// No top-level domain starts with a digit, so such a name is an address
+	// in another spelling (0x7f.1, 2130706433), which a proxy may read as one.
+	if last := name[strings.LastIndexByte(name, '.')+1:]; last == "" || last[0] >= '0' && last[0] <= '9' {
+		return fmt.Errorf("%s is not a host name refetch can check", host)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
