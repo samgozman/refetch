@@ -78,14 +78,16 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply
 }
 
 // readBody reads a response body: a page up to MaxBytes, cut there; a
-// response that may be a PDF or office file up to MaxDocBytes, as a cut
-// file cannot be read at all.
+// response that may be a PDF or office file, by its type or its first
+// bytes, up to MaxDocBytes, as a cut file cannot be read at all.
 func readBody(r io.Reader, contentType string) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, MaxBytes))
 	mt, _, _ := mime.ParseMediaType(contentType)
-	if !isDocType(mt) {
-		return io.ReadAll(io.LimitReader(r, MaxBytes))
+	if err != nil || len(body) < MaxBytes || !isDocType(mt) && !mayBeDocument(body) {
+		return body, err
 	}
-	body, err := io.ReadAll(io.LimitReader(r, MaxDocBytes+1))
+	rest, err := io.ReadAll(io.LimitReader(r, MaxDocBytes+1-MaxBytes))
+	body = append(body, rest...)
 	if err == nil && len(body) > MaxDocBytes {
 		return nil, fmt.Errorf("the file is larger than %d MB", MaxDocBytes>>20)
 	}

@@ -318,8 +318,9 @@ func (o *office) sheet(name string, shared []string, left *sheetBudget) ([][]str
 				row = placeCell(row, column(ref), v)
 				left.cells--
 				left.text -= len(v)
-			case "row":
+			case "row": // counted as a cell: a sheet of empty rows is cheap to send
 				rows = append(rows, row)
+				left.cells--
 			}
 		}
 	})

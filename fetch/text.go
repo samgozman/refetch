@@ -76,8 +76,12 @@ func Text(body []byte, contentType string) string {
 }
 
 // isHTML reports a body to read as HTML: its type says so, or it starts
-// with a tag.
+// with a tag and is not Markdown, such as a document's text that opens
+// with a "<".
 func isHTML(body []byte, contentType string) bool {
+	if strings.HasPrefix(contentType, "text/markdown") {
+		return false
+	}
 	return strings.Contains(contentType, "html") || bytes.HasPrefix(bytes.TrimSpace(body), []byte("<"))
 }
 

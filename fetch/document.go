@@ -40,10 +40,10 @@ func isDocType(mt string) bool { return slices.Contains(docTypes, mt) }
 // is set for a document that could not be read, wrapping ErrDocument.
 func Document(ctx context.Context, body []byte) (md string, ok bool, err error) {
 	switch {
-	case bytes.HasPrefix(body, []byte("%PDF-")):
+	case bytes.HasPrefix(body, pdfMagic):
 		md, err = pdfWithin(ctx, body)
 		return md, true, err
-	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
+	case bytes.HasPrefix(body, zipMagic):
 		zr, zerr := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 		if zerr != nil {
 			return "", false, nil //nolint:nilerr // not a zip after all: a file of no type refetch reads
@@ -64,9 +64,16 @@ func Document(ctx context.Context, body []byte) (md string, ok bool, err error) 
 	return "", false, nil
 }
 
-// pdfTimeout caps a PDF's reading: the parser loops forever on a page tree
-// that holds itself. Past it the call gives up, and the parse is left to
-// end on its own.
+var pdfMagic, zipMagic = []byte("%PDF-"), []byte("PK\x03\x04")
+
+// mayBeDocument reports whether body starts the way a PDF or office file does.
+func mayBeDocument(body []byte) bool {
+	return bytes.HasPrefix(body, pdfMagic) || bytes.HasPrefix(body, zipMagic)
+}
+
+// pdfTimeout caps a PDF's reading, for malformed files the walk limits do
+// not foresee. Past it the call gives up, and the parse is left to end on
+// its own.
 var pdfTimeout = 20 * time.Second // tests shorten it
 
 func pdfWithin(ctx context.Context, body []byte) (string, error) {
@@ -104,14 +111,16 @@ func pdfText(body []byte) (text string, err error) {
 	}
 	var b strings.Builder
 	budget := int64(maxPDFUnpacked)
-	for i := 1; i <= min(r.NumPage(), maxPDFPages) && b.Len() < MaxDocBytes; i++ {
-		p := r.Page(i)
-		if p.V.IsNull() {
-			continue
+	for i, p := range pdfPages(r) {
+		if b.Len() >= MaxDocBytes {
+			break
+		}
+		if !shallow(p.V) {
+			return "", fmt.Errorf("%w: page %d sits deeper than %d levels in the page tree", ErrDocument, i+1, maxTreeDepth)
 		}
 		n, err := pageCost(p, min(budget, maxPageUnpacked))
 		if err != nil {
-			return "", fmt.Errorf("%w: page %d %w", ErrDocument, i, err)
+			return "", fmt.Errorf("%w: page %d %w", ErrDocument, i+1, err)
 		}
 		budget -= n
 		if page := pageLines(p.Content().Text); page != "" {
@@ -125,11 +134,54 @@ func pdfText(body []byte) (text string, err error) {
 	return strings.TrimSpace(b.String()), nil
 }
 
+// pdfPages lists a PDF's pages in order, walking the page tree once. The
+// parser's own lookup walks the tree again for every page and loops
+// forever on a tree that holds itself; this walk stops at maxTreeDepth
+// levels and maxTreeNodes nodes.
+func pdfPages(r *pdf.Reader) []pdf.Page {
+	var out []pdf.Page
+	nodes := 0
+	var walk func(v pdf.Value, depth int)
+	walk = func(v pdf.Value, depth int) {
+		kids := v.Key("Kids")
+		for i := 0; i < kids.Len() && len(out) < maxPDFPages && nodes < maxTreeNodes; i++ {
+			nodes++
+			switch kid := kids.Index(i); kid.Key("Type").Name() {
+			case "Pages":
+				if depth < maxTreeDepth {
+					walk(kid, depth+1)
+				}
+			case "Page":
+				out = append(out, pdf.Page{V: kid})
+			}
+		}
+	}
+	if root := r.Trailer().Key("Root").Key("Pages"); root.Key("Type").Name() == "Pages" {
+		walk(root, 1)
+	}
+	return out
+}
+
+// shallow reports whether a page's chain of parents ends within
+// maxTreeDepth levels; the parser follows it unbounded to find inherited
+// resources.
+func shallow(v pdf.Value) bool {
+	for range maxTreeDepth + 1 {
+		if v.IsNull() {
+			return true
+		}
+		v = v.Key("Parent")
+	}
+	return false
+}
+
 // Limits on a PDF. The parser has no cap on what a compressed stream
 // unpacks to, holds every glyph of a page as a text run, and parses a
 // font's character map again at every font switch.
 const (
 	maxPDFPages     = 2000
+	maxTreeDepth    = 64
+	maxTreeNodes    = 4 * maxPDFPages
 	maxPageUnpacked = 8 << 20
 	maxPDFUnpacked  = 64 << 20
 	maxPageGlyphs   = 200000

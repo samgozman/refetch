@@ -16,13 +16,17 @@ func makePDF(content string) []byte { return makePDFStream(content, "") }
 
 // makePDFStream is makePDF with the content stored under filter.
 func makePDFStream(content, filter string) []byte {
-	objs := []string{
+	return buildPDF(
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
 		fmt.Sprintf("<< /Length %d %s >>\nstream\n%s\nendstream", len(content), filter, content),
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-	}
+	)
+}
+
+// buildPDF lays out objects 1, 2, ... with their cross-reference table.
+func buildPDF(objs ...string) []byte {
 	var b bytes.Buffer
 	b.WriteString("%PDF-1.4\n")
 	offsets := make([]int, len(objs))
@@ -110,11 +114,17 @@ func TestDocumentPDFWorkLimits(t *testing.T) {
 	}
 
 	old := pdfTimeout
-	pdfTimeout = 300 * time.Millisecond
+	pdfTimeout = 2 * time.Second
 	t.Cleanup(func() { pdfTimeout = old })
-	loop := bytes.Replace(makePDF("BT ET"), []byte("/Kids [3 0 R] /Count 1"), []byte("/Kids [2 0 R] /Count 9"), 1)
-	if _, ok, err := Document(t.Context(), loop); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "took over") {
+	const content = "<< /Length 33 >>\nstream\nBT /F1 12 Tf 72 720 Td (x) Tj ET\nendstream"
+	loop := buildPDF("<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [2 0 R 2 0 R 2 0 R] /Count 9 >>")
+	if _, ok, err := Document(t.Context(), loop); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "no text layer") {
 		t.Errorf("a page tree that holds itself: %v %v", ok, err)
+	}
+	cycle := buildPDF("<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 /Parent 2 0 R >>",
+		"<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>", content)
+	if _, ok, err := Document(t.Context(), cycle); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "deeper than") {
+		t.Errorf("a parent chain that holds itself: %v %v", ok, err)
 	}
 }
 
@@ -167,6 +177,14 @@ func TestDocumentXlsxLimits(t *testing.T) {
 	md, ok, err := Document(t.Context(), book)
 	if !ok || err != nil || len(md) > maxSheetText+64<<10 || !strings.Contains(md, "(stopped at") || strings.Contains(md, "Never") {
 		t.Errorf("xlsx limits: %v %v, %d bytes, ends %q", ok, err, len(md), md[max(0, len(md)-80):])
+	}
+	empty := makeZip(t, map[string]string{
+		"xl/workbook.xml":            `<workbook ` + rNS + `><sheets><sheet name="Empty" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData>` + strings.Repeat("<row/>", 2*maxSheetCells) + `</sheetData></worksheet>`,
+	})
+	if md, ok, err := Document(t.Context(), empty); !ok || err != nil || !strings.Contains(md, "(stopped at") {
+		t.Errorf("a sheet of empty rows: %v %v %q", ok, err, md)
 	}
 	if c := cellText(strings.Repeat("é", 5000)); len([]rune(c)) != maxCellRunes+1 {
 		t.Errorf("cellText kept %d runes", len([]rune(c)))
@@ -233,6 +251,19 @@ func TestReadBody(t *testing.T) {
 	}
 	if _, err := readBody(strings.NewReader(strings.Repeat("x", MaxDocBytes+1)), "application/octet-stream"); err == nil {
 		t.Error("a document over MaxDocBytes must fail")
+	}
+	if b, err := readBody(strings.NewReader("%PDF-"+big), "application/force-download"); err != nil || len(b) != len(big)+5 {
+		t.Errorf("a PDF under another type may pass MaxBytes: %d, %v", len(b), err)
+	}
+}
+
+func TestDocumentTextStaysMarkdown(t *testing.T) {
+	const md = "<Project> roadmap\n\n- ship in May"
+	if got := Markdown([]byte(md), TypeMarkdown, nil); got != md {
+		t.Errorf("Markdown = %q", got)
+	}
+	if got := Text([]byte(md), TypeMarkdown); got != md {
+		t.Errorf("Text = %q", got)
 	}
 }
 
