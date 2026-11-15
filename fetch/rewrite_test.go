@@ -25,3 +25,11 @@ func TestRewrite(t *testing.T) {
 		}
 	}
 }
+
+func TestIsWebURL(t *testing.T) {
+	for u, want := range map[string]bool{"https://example.com/a": true, "http://example.com": true, "file://example.com/etc/passwd": false, "https://": false, "data:text/html,x": false} {
+		if IsWebURL(u) != want {
+			t.Errorf("IsWebURL(%q) = %v", u, !want)
+		}
+	}
+}

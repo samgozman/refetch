@@ -135,6 +135,13 @@ func parseURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
+// IsWebURL reports whether raw is an http or https URL with a host, the
+// only kind refetch reads.
+func IsWebURL(raw string) bool {
+	_, err := parseURL(raw)
+	return err == nil
+}
+
 func hostOf(raw string) string {
 	if u, err := parseURL(raw); err == nil {
 		return u.Hostname()

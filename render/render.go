@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,8 +53,12 @@ type Renderer struct {
 }
 
 // Render loads rawURL in a throwaway headless Chrome profile and returns
-// the DOM after the page's scripts ran, read over the DevTools pipe.
+// the DOM after the page's scripts ran, read over the DevTools pipe. It
+// opens http and https URLs only: Chrome would open file: ones too.
 func (r *Renderer) Render(ctx context.Context, rawURL string) (Page, error) {
+	if u, err := url.Parse(rawURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return Page{}, fmt.Errorf("not an http(s) URL: %q", rawURL)
+	}
 	chrome := cmp.Or(r.Chrome, FindChrome())
 	if chrome == "" {
 		return Page{}, ErrNoChrome

@@ -169,6 +169,15 @@ func TestRenderBlocksTrackersAndLooksRegular(t *testing.T) {
 	}
 }
 
+func TestRenderRefusesLocalURLs(t *testing.T) {
+	r := &Renderer{Chrome: filepath.Join(t.TempDir(), "never-runs")}
+	for _, u := range []string{"file:///etc/passwd", "file://app.example.com/etc/passwd", "chrome://settings", "javascript:alert(1)", "https://"} {
+		if _, err := r.Render(t.Context(), u); err == nil || !strings.Contains(err.Error(), "not an http(s) URL") {
+			t.Errorf("%s: %v", u, err)
+		}
+	}
+}
+
 func TestNoChrome(t *testing.T) {
 	r := &Renderer{Chrome: filepath.Join(t.TempDir(), "missing")}
 	if _, err := r.Render(t.Context(), "https://example.com/"); err == nil {

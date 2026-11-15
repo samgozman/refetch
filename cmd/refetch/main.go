@@ -181,6 +181,9 @@ const (
 // renderAlways. A host that recently needed headless Chrome every time
 // goes to it first. All attempts are recorded under one fetch id.
 func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
+	if !fetch.IsWebURL(url) {
+		return fetch.Page{}, fmt.Errorf("not an http(s) URL: %q", url)
+	}
 	url = cmp.Or(fetch.Rewrite(url), url)
 	var p fetch.Page
 	var err error

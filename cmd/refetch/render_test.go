@@ -160,4 +160,13 @@ func TestRememberedHostRendersFirst(t *testing.T) {
 	if p, _ := fr.get(t.Context(), u, renderNever); len(p.Attempts) == 0 || p.Attempts[0].Client == render.Client {
 		t.Errorf("render: false never goes to Chrome first: %+v", p.Attempts)
 	}
+
+	r.dom, r.err = rendered, nil
+	for range 2 {
+		_, _ = fr.get(t.Context(), u, renderAuto)
+	}
+	calls := r.calls
+	if _, _ = fr.get(t.Context(), "file://app.example.com/etc/passwd", renderAuto); r.calls != calls {
+		t.Error("a file: URL on a remembered host reached headless Chrome")
+	}
 }
