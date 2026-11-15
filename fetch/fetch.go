@@ -52,6 +52,7 @@ const (
 	DefaultRobotsAgent = "refetch"
 	DefaultTimeout     = 20 * time.Second
 	MaxBytes           = 2 << 20
+	TypeMarkdown       = "text/markdown; charset=utf-8" // the content type of a document read as Markdown
 	robotsTTL          = time.Hour
 )
 
@@ -155,8 +156,17 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 		a.Outcome = OutcomeError
 		err = fmt.Errorf("HTTP %d (%s client)", status, client)
 	case NotText(ct, body) != "":
-		a.Outcome = OutcomeError
-		err = fmt.Errorf("%w (%s)", ErrNotText, NotText(ct, body))
+		md, ok, derr := Document(body)
+		switch {
+		case !ok:
+			a.Outcome = OutcomeError
+			err = fmt.Errorf("%w (%s)", ErrNotText, NotText(ct, body))
+		case derr != nil:
+			a.Outcome = OutcomeError
+			err = derr
+		default:
+			body, ct = []byte(md), TypeMarkdown
+		}
 	case NeedsJS(body, ct):
 		a.Outcome = OutcomeNeedsJS
 		err = fmt.Errorf("page needs JavaScript to show its content (HTTP %d, %s client)", status, client)
@@ -222,7 +232,7 @@ func backupWorthy(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	for _, s := range []string{"not a public address", "no such host", "connection refused", "not an http(s) url", "redirect"} {
+	for _, s := range []string{"not a public address", "no such host", "connection refused", "not an http(s) url", "redirect", "file is larger"} {
 		if strings.Contains(msg, s) {
 			return false
 		}

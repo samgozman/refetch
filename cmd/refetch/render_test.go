@@ -116,8 +116,12 @@ func TestRenderModes(t *testing.T) {
 func TestNotTextHint(t *testing.T) {
 	p := fetch.Page{Last: fetch.Attempt{Client: fetch.ClientChromeLike, Outcome: fetch.OutcomeError, Status: 200}}
 	p.Attempts = []fetch.Attempt{p.Last}
-	err := fmt.Errorf("%w (application/pdf)", fetch.ErrNotText)
-	if h := handOff(p, err); !strings.Contains(h, "not PDFs, images or other files") {
+	err := fmt.Errorf("%w (image/png)", fetch.ErrNotText)
+	if h := handOff(p, err); !strings.Contains(h, "not images, audio, video or other files") {
+		t.Errorf("hand-off %q", h)
+	}
+	err = fmt.Errorf("%w: the PDF has no text layer", fetch.ErrDocument)
+	if h := handOff(p, err); !strings.Contains(h, "a scanned PDF has no text layer") {
 		t.Errorf("hand-off %q", h)
 	}
 }

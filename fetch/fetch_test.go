@@ -48,6 +48,7 @@ func TestModes(t *testing.T) {
 	cf403 := map[string]page{u: {status: 403, body: "<html><title>Just a moment...</title>challenge-platform</html>"}}
 	cfHeader := map[string]page{u: {status: 403, body: "<html>please wait</html>", mitigated: "challenge"}}
 	pdf := map[string]page{u: {status: 200, body: "%PDF-1.7\n\x00\x01binary", ct: "application/pdf"}}
+	png := map[string]page{u: {status: 200, body: "\x89PNG\r\n\x1a\n\x00", ct: "image/png"}}
 	good := map[string]page{u: {status: 200, body: "<p>release notes</p>"}}
 	tlsErr := map[string]page{u: {err: errors.New("tls: handshake failure")}}
 	timeout := map[string]page{u: {err: context.DeadlineExceeded}}
@@ -64,7 +65,8 @@ func TestModes(t *testing.T) {
 		"always, challenge":            {"", good, challenge, "challenge page", []string{ClientChromeLike}, []string{OutcomeChallenge}},
 		"always, 403 challenge page":   {"", good, cf403, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
 		"always, cf-mitigated":         {"", good, cfHeader, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
-		"always, PDF":                  {"", good, pdf, "not a web page or text (application/pdf)", []string{ClientChromeLike}, []string{OutcomeError}},
+		"always, broken PDF":           {"", good, pdf, "could not read the document", []string{ClientChromeLike}, []string{OutcomeError}},
+		"always, image":                {"", good, png, "not a web page or text (image/png)", []string{ClientChromeLike}, []string{OutcomeError}},
 		"fallback on 403 challenge":    {ImpersonateFallback, cf403, good, "", []string{ClientPlain, ClientChromeLike}, []string{OutcomeChallenge, OutcomeOK}},
 		"always, TLS error to backup":  {"", good, tlsErr, "", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeError, OutcomeOK}},
 		"always, no backup on timeout": {"", good, timeout, "deadline", []string{ClientChromeLike}, []string{OutcomeTimeout}},

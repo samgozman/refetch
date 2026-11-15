@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"time"
@@ -71,8 +72,24 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply
 		return reply{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
-	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
+	ct := resp.Header.Get("Content-Type")
+	body, err := readBody(resp.Body, ct)
+	return reply{resp.StatusCode, body, ct, resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
+}
+
+// readBody reads a response body: a page up to MaxBytes, cut there; a
+// response that may be a PDF or office file up to MaxDocBytes, as a cut
+// file cannot be read at all.
+func readBody(r io.Reader, contentType string) ([]byte, error) {
+	mt, _, _ := mime.ParseMediaType(contentType)
+	if !isDocType(mt) {
+		return io.ReadAll(io.LimitReader(r, MaxBytes))
+	}
+	body, err := io.ReadAll(io.LimitReader(r, MaxDocBytes+1))
+	if err == nil && len(body) > MaxDocBytes {
+		return nil, fmt.Errorf("the file is larger than %d MB", MaxDocBytes>>20)
+	}
+	return body, err
 }
 
 var plainClient = &http.Client{
@@ -95,8 +112,9 @@ func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Durati
 		return reply{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes))
-	return reply{resp.StatusCode, body, resp.Header.Get("Content-Type"), resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
+	ct := resp.Header.Get("Content-Type")
+	body, err := readBody(resp.Body, ct)
+	return reply{resp.StatusCode, body, ct, resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 
 func checkRedirect(u *url.URL, hops int) error {

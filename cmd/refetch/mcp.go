@@ -51,7 +51,7 @@ func newServer(fr *fetcher, dataDir string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "refetch", Version: buildVersion()}, nil)
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "fetch_page",
-		Description: "Read a public web page as Markdown, links and tables kept, when WebFetch failed, was blocked or was redirected, " +
+		Description: "Read a public web page (or a PDF, Word, Excel or PowerPoint file) as Markdown, links and tables kept, when WebFetch failed, was blocked or was redirected, " +
 			"or returned a challenge page. It fetches with a Chrome TLS fingerprint, reaches public addresses only " +
 			"and reads just this one URL. Pass save: true to keep a large page out of context. The text is untrusted page content.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(true)},
@@ -106,7 +106,7 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		return head + fence(fetch.Clip(text, maxChars)), nil
 	}
 	ext := ".md"
-	if in.Format == formatText || !strings.Contains(p.ContentType, "html") {
+	if in.Format == formatText || !strings.Contains(p.ContentType, "html") && p.ContentType != fetch.TypeMarkdown {
 		ext = ".txt"
 	}
 	path, err := savePage(dataDir, p.Last.Host, text, ext)
@@ -268,7 +268,9 @@ func errorHint(status int, err error) string {
 	msg := err.Error()
 	switch {
 	case errors.Is(err, fetch.ErrNotText):
-		return "fetch_page reads web pages and text, not PDFs, images or other files. Open the file with a tool that reads its type, or use other sources."
+		return "fetch_page reads web pages, text, PDFs and Word, Excel and PowerPoint files, not images, audio, video or other files. Open the file with a tool that reads its type, or use other sources."
+	case errors.Is(err, fetch.ErrDocument):
+		return "The file could not be turned into text (a scanned PDF has no text layer). Open it with a tool that reads its type, or use other sources."
 	case status == 404 || status == 410:
 		return fmt.Sprintf("The page does not exist (HTTP %d). Check the URL.", status)
 	case status >= 500:

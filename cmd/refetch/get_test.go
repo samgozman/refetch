@@ -205,3 +205,14 @@ func TestFetchPageReadsTheExportAddress(t *testing.T) {
 		t.Errorf("fetched %v: %q, %v", fp.urls, text, err)
 	}
 }
+
+func TestFetchPageSavesADocumentAsMarkdown(t *testing.T) {
+	fp := &fakePages{page: okPage("# Report\n\nQuarterly numbers.")}
+	fp.page.ContentType = fetch.TypeMarkdown
+	usePages(t, fp)
+	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: pageURL, Save: true})
+	if err != nil || !strings.Contains(text, ".md\nFirst 2000 characters") || !strings.Contains(text, "# Report") {
+		t.Errorf("save: %q, %v", text, err)
+	}
+}

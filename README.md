@@ -152,8 +152,12 @@ code blocks kept, scripts and hidden elements dropped. Links are absolute, and
 search engines' click-through links point at their targets, so Claude can
 follow a search result or a "next page" link. Only http, https and mailto
 links keep their target, and tracking parameters (`utm_*`, `fbclid`, `gclid`)
-are dropped. Pass `format: "text"` for plain text instead. A PDF, an image or
-another file gets a clear error instead of its bytes.
+are dropped. Pass `format: "text"` for plain text instead. PDFs (their text
+layer; a scan has none) and Word, Excel and PowerPoint files (`.docx`,
+`.xlsx`, `.pptx`) come back as Markdown too, found by their bytes, up to
+32 MB. An image or another file gets a clear error instead of its bytes.
+Links to Google Docs, Sheets, Slides and Drive files are read from their
+export addresses, as the editors' own pages hold no document text.
 
 Claude can pass `render: true` to read a page with headless Chrome even when
 the first step got it (for content that scripts fill in), `render: false` to

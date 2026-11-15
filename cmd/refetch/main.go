@@ -183,7 +183,7 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 	p, err := fr.f.Get(ctx, url)
 	switch o := p.Last.Outcome; {
 	case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
-		mode == renderAlways && (err == nil || o == fetch.OutcomeRefused):
+		mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
 		p, err = fr.renderStep(ctx, url, mode, p, err)
 	}
 	if fr.st != nil {
