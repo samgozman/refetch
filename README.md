@@ -148,7 +148,10 @@ show how often each path was taken. Step by step:
    blocked and images are not downloaded. Chrome shows pages the user agent,
    client hints and screen of a regular window of the installed version, in
    every frame and worker, and reads the page from an isolated script world
-   that the page's own scripts cannot watch. A challenge counts even when it comes as a 403,
+   that the page's own scripts cannot watch. A captcha wall (DataDome,
+   PerimeterX, Reddit's "prove your humanity") gets one more try in a new
+   tab whose request headers are ordered differently, as sites disagree on
+   which order they let through; refetch never solves a captcha. A challenge counts even when it comes as a 403,
    as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or 429 skips
    this step, and so does a machine without Chrome. A host whose last two
    fetches in the past week only headless Chrome could read goes straight to

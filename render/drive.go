@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -53,17 +54,50 @@ type tab struct {
 
 	mu       sync.Mutex
 	override map[string]any // the user agent and client hints every target gets
+
+	altLanguage bool // Accept-Language from the override, not --accept-lang
 }
 
 // drive loads rawURL in a new tab and reads its DOM: after the load event,
 // a few scrolls for content that loads into view, and once the text stops
 // changing, or at the deadline, whatever the page holds by then. A page
 // still loading at the deadline is read as it is. A challenge or empty
-// page gets another look, in case it reloads itself.
+// page gets another look, in case it reloads itself. A captcha wall, which
+// never clears by itself, gets one more try in a new tab whose request
+// headers differ in where Accept-Language sits (see userAgent).
 func (t *tab) drive(ctx context.Context, rawURL string) (Page, error) {
 	deadline, _ := ctx.Deadline()
 	pageCtx, cancel := context.WithDeadline(ctx, deadline.Add(-snapshotReserve))
 	defer cancel()
+	p, err := t.load(ctx, pageCtx, rawURL)
+	if err == nil && captchaWall(p.DOM) && time.Until(deadline) > retryNeeds {
+		t.altLanguage = true
+		if p2, err := t.load(ctx, pageCtx, rawURL); err == nil && !captchaWall(p2.DOM) {
+			return p2, nil
+		}
+	}
+	return p, err
+}
+
+// retryNeeds is the time left that a second try at a captcha wall needs.
+const retryNeeds = 6 * time.Second
+
+// captchaWall reports a page that asks a person to solve a captcha:
+// DataDome's, PerimeterX's, Reddit's. Unlike Cloudflare's interstitial,
+// waiting never clears it.
+func captchaWall(dom []byte) bool {
+	lower := bytes.ToLower(dom[:min(len(dom), 256<<10)])
+	for _, m := range []string{"captcha-delivery.com", "px-captcha", "prove your humanity"} {
+		if bytes.Contains(lower, []byte(m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// load opens a tab and reads rawURL in it, within pageCtx; the DOM is read
+// within ctx, which allows snapshotReserve more.
+func (t *tab) load(ctx, pageCtx context.Context, rawURL string) (Page, error) {
 	if err := t.open(pageCtx); err != nil {
 		return Page{}, err
 	}
@@ -95,7 +129,7 @@ func (t *tab) drive(ctx context.Context, rawURL string) (Page, error) {
 		}
 		t.settle(pageCtx)
 		p, err := t.snapshot(ctx)
-		if err != nil || pageCtx.Err() != nil || !fetch.Challenge(http.StatusOK, p.DOM) && !fetch.EmptyRendered(p.DOM) {
+		if err != nil || pageCtx.Err() != nil || captchaWall(p.DOM) || !fetch.Challenge(http.StatusOK, p.DOM) && !fetch.EmptyRendered(p.DOM) {
 			return p, err
 		}
 		wait, stop = context.WithTimeout(pageCtx, recheckWait)
@@ -217,14 +251,23 @@ func (t *tab) userAgent(ctx context.Context) (map[string]any, error) {
 	if runtime.GOOS == "darwin" {
 		platform, navPlatform = "macOS", "MacIntel"
 	}
-	return map[string]any{
+	out := map[string]any{
 		"userAgent": strings.ReplaceAll(v.UserAgent, "HeadlessChrome", "Chrome"), "platform": navPlatform,
 		"userAgentMetadata": map[string]any{
 			"brands": brands, "fullVersionList": fullBrands, "fullVersion": full, "platform": platform,
 			"platformVersion": osVersion(), "architecture": arch, "bitness": "64", "model": "", "mobile": false,
 			"wow64": false, "formFactors": []string{"Desktop"},
 		},
-	}, nil
+	}
+	// Accept-Language comes from --accept-lang, in Chrome's own header
+	// order; set here (a plain list, Chrome adds the q-values) it moves up
+	// beside the user agent. Measured in Nov 2026, G2's DataDome served
+	// only the first and Reddit only the second, so a captcha wall gets a
+	// second try with the other.
+	if t.altLanguage {
+		out["acceptLanguage"] = "en-US,en"
+	}
+	return out, nil
 }
 
 // threeParts pads a dotted version to three numbers ("15.6" is "15.6.0")

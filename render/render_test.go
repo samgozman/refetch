@@ -46,6 +46,12 @@ func site(t *testing.T) *httptest.Server {
 				customElements.define("case-view", class extends HTMLElement { connectedCallback() {
 					this.attachShadow({mode: "open"}).innerHTML = "<p>Secret word: quince, from the orchard notes.</p>"; } });
 				</script></body></html>`))
+		case "/captcha": // a captcha wall on the first visit, the page on the next
+			if captchaHits.Add(1) == 1 {
+				_, _ = w.Write([]byte(`<html><head><title>Reddit - Prove your humanity</title></head><body><p>Solve the captcha.</p></body></html>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<html><body><h1>Secret word: medlar</h1><p>From the orchard notes.</p></body></html>`))
 		case "/fingerprint":
 			_, _ = w.Write([]byte(fingerprintPage))
 		case "/tracker.js":
@@ -77,6 +83,9 @@ for (const [proto, prop] of [[HTMLElement.prototype, "innerText"], [Element.prot
 		screen: screen.width + "x" + screen.height, webdriver: navigator.webdriver}) + " end of fingerprint, padded to be read as a page";
 })();
 </script></body></html>`
+
+// captchaHits counts visits to /captcha.
+var captchaHits atomic.Int32
 
 // tracked counts requests for /tracker.js, which a render must block.
 var tracked atomic.Int32
@@ -282,6 +291,34 @@ func TestRenderReadsShadowRoots(t *testing.T) {
 	p, err := r.Render(t.Context(), srv.URL+"/component")
 	if err != nil || !strings.Contains(string(p.DOM), `<template shadowrootmode="open"><p>Secret word: quince`) {
 		t.Errorf("err %v, dom %.400q", err, p.DOM)
+	}
+}
+
+func TestRenderRetriesACaptchaWall(t *testing.T) {
+	chrome := chromeOrSkip(t)
+	srv := site(t)
+	r := &Renderer{Chrome: chrome, Timeout: 15 * time.Second, dial: loopbackDial}
+	start := time.Now()
+	p, err := r.Render(t.Context(), srv.URL+"/captcha")
+	if err != nil || !strings.Contains(string(p.DOM), "Secret word: medlar") || captchaHits.Load() != 2 {
+		t.Errorf("err %v, visits %d, dom %.300q", err, captchaHits.Load(), p.DOM)
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Errorf("a captcha wall should not wait for the deadline: %s", took)
+	}
+}
+
+func TestCaptchaWall(t *testing.T) {
+	for page, want := range map[string]bool{
+		`<script src="https://ct.captcha-delivery.com/c.js"></script>`: true,
+		`<div id="px-captcha"></div>`:                                  true,
+		`<title>Reddit - Prove your humanity</title>`:                  true,
+		`<title>Just a moment...</title>`:                              false,
+		`<h1>Release notes</h1>`:                                       false,
+	} {
+		if got := captchaWall([]byte(page)); got != want {
+			t.Errorf("captchaWall(%s) = %v", page, got)
+		}
 	}
 }
 
