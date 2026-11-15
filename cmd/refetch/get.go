@@ -20,6 +20,7 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	format := fs.String("format", formatMarkdown, "markdown or text")
 	allowRender := fs.Bool("render", true, "run the headless Chrome step for a challenge or JavaScript-only page")
 	forceRender := fs.Bool("force-render", false, "run the headless Chrome step for every page")
+	fullPage := fs.Bool("full-page", false, "keep the site's navigation, header, footer and sidebars in markdown")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(stderr, "Usage: refetch get [flags] <url>\n\nFetches one page, prints each step to stderr and the text to stdout.")
 		fs.PrintDefaults()
@@ -60,10 +61,13 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	if note := renderNote(p); note != "" {
 		_, _ = fmt.Fprintln(stderr, note)
 	}
+	if note := thinNote(pageText(p, fs.Arg(0), *format, *fullPage)); note != "" {
+		_, _ = fmt.Fprintln(stderr, note)
+	}
 	_, _ = fmt.Fprintf(stderr, "won: %s\n\n", clientNames[p.Last.Client])
 	out := string(p.Body)
 	if !*raw {
-		out = pageText(p, fs.Arg(0), *format)
+		out = pageText(p, fs.Arg(0), *format, *fullPage)
 	}
 	if *maxChars > 0 {
 		out = fetch.Clip(out, *maxChars)

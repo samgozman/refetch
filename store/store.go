@@ -236,6 +236,31 @@ func (s *Store) Attempts(ctx context.Context, since time.Time) ([]Attempt, error
 	return out, rows.Err()
 }
 
+// NeedsRender reports whether host's last n fetches since t were each read
+// by the headless Chrome step ("headless") and by no HTTP client.
+func (s *Store) NeedsRender(ctx context.Context, host string, since time.Time, n int) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT max(client = 'headless' AND outcome = 'ok'), max(client != 'headless' AND outcome = 'ok')
+		FROM attempts WHERE host = ? AND ts >= ?
+		GROUP BY fetch_id ORDER BY max(id) DESC LIMIT ?`, host, since.UnixMilli(), n)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+	seen := 0
+	for rows.Next() {
+		var rendered, fetched bool
+		if err := rows.Scan(&rendered, &fetched); err != nil {
+			return false, err
+		}
+		if !rendered || fetched {
+			return false, rows.Err()
+		}
+		seen++
+	}
+	return seen == n, rows.Err()
+}
+
 // Rollup moves rows older than cutoff into per-day counts.
 func (s *Store) Rollup(ctx context.Context, cutoff time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)

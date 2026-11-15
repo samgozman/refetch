@@ -13,20 +13,107 @@ import (
 )
 
 // Markdown returns an HTML page as Markdown: headings, lists, links, tables
-// and code blocks kept; scripts, styles and hidden elements dropped. Links
-// resolve against page (a <base href> wins); only http, https and mailto
-// links keep their target. Other types come back as Text returns them.
+// and code blocks kept; scripts, styles, hidden elements and the site's
+// navigation, banners, footers, sidebars and cookie notices dropped. When
+// that leaves next to nothing, the page was not laid out the way the
+// trimming expects, and the whole page comes back. Links resolve against
+// page (a <base href> wins); only http, https and mailto links keep their
+// target. Other types come back as Text returns them.
 func Markdown(body []byte, contentType string, page *url.URL) string {
+	return toMarkdown(body, contentType, page, true)
+}
+
+// FullMarkdown is Markdown with the site's navigation, footers and
+// sidebars kept.
+func FullMarkdown(body []byte, contentType string, page *url.URL) string {
+	return toMarkdown(body, contentType, page, false)
+}
+
+// minTrimmed is the shortest trimmed page kept over the whole one.
+const minTrimmed = 200
+
+func toMarkdown(body []byte, contentType string, page *url.URL, trim bool) string {
 	if !isHTML(body, contentType) {
 		return string(body)
 	}
+	return htmlMarkdown(body, page, render{trim: trim, noscript: true, unhide: true})
+}
+
+// render says how to convert a page: trim drops the site's furniture;
+// noscript and unhide allow the fallbacks for a page that comes out thin;
+// showHidden renders elements the page hides.
+type render struct{ trim, noscript, unhide, showHidden bool }
+
+func htmlMarkdown(body []byte, page *url.URL, r render) string {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
-		return Text(body, contentType)
+		return Text(body, "text/html")
 	}
-	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}}
+	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}, drop: map[*html.Node]bool{}, showHidden: r.showHidden}
 	m.markBlocks(doc)
-	return strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
+	if r.trim {
+		m.markBoilerplate(doc, false, 0)
+	}
+	out := strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
+	if r.trim && len(m.drop) > 0 && len([]rune(out)) < minTrimmed {
+		r.trim = false
+		return htmlMarkdown(body, page, r)
+	}
+	if r.noscript {
+		if alt := noscriptMarkdown(doc, page, r.trim); outweighs(alt, out) {
+			if title := pageTitle(doc); title != "" && !strings.HasPrefix(alt, title) {
+				alt = title + "\n\n" + alt
+			}
+			return alt
+		}
+	}
+	// A page that hides its content until a script shows it (Zendesk help
+	// articles do) comes out thin: render what it hides.
+	if r.unhide && len([]rune(out)) < minTrimmed {
+		r.noscript, r.unhide, r.showHidden = false, false, true
+		if alt := htmlMarkdown(body, page, r); outweighs(alt, out) {
+			return alt
+		}
+		if alt := structured(doc, page); outweighs(alt, out) {
+			return alt
+		}
+	}
+	return out
+}
+
+// outweighs reports whether a fallback's text is worth more than the page
+// as shown: at least minTrimmed characters, and over twice as long.
+func outweighs(alt, out string) bool {
+	n := len([]rune(alt))
+	return n >= minTrimmed && n > 2*len([]rune(out))
+}
+
+// pageTitle is the <title> of a parsed page, on one line.
+func pageTitle(doc *html.Node) string {
+	for n := range doc.Descendants() {
+		if n.DataAtom == atom.Title && n.Type == html.ElementNode {
+			return oneLineText(textOf(n))
+		}
+	}
+	return ""
+}
+
+// noscriptMarkdown is the Markdown of what a page shows browsers without
+// JavaScript, which some apps fill with the whole page (Discourse forums
+// do, for every topic and list) while the visible page holds little more
+// than a header until scripts run; used when it is over twice the visible
+// page. The parser keeps a <noscript>'s content as raw text.
+func noscriptMarkdown(doc *html.Node, page *url.URL, trim bool) string {
+	var b strings.Builder
+	for n := range doc.Descendants() {
+		if n.Type == html.ElementNode && n.DataAtom == atom.Noscript && n.FirstChild != nil && n.FirstChild.Type == html.TextNode {
+			b.WriteString(n.FirstChild.Data)
+		}
+	}
+	if _, plain := fragmentText(b.String()); plain < minTrimmed {
+		return ""
+	}
+	return htmlMarkdown([]byte(b.String()), page, render{trim: trim})
 }
 
 // maxLinkLen drops the target of a longer link, which costs more of
@@ -53,6 +140,13 @@ var skipTags = map[atom.Atom]bool{
 	atom.Textarea: true, atom.Button: true, atom.Img: true, atom.Picture: true, atom.Video: true, atom.Audio: true,
 }
 
+// skipped reports an element whose content is no page text. A <template>
+// is skipped unless it is a shadow root, as headless Chrome writes the
+// content of web components: <template shadowrootmode="open">.
+func skipped(n *html.Node) bool {
+	return skipTags[n.DataAtom] && (n.DataAtom != atom.Template || attr(n, "shadowrootmode") == "")
+}
+
 var blockTags = map[atom.Atom]bool{
 	atom.Html: true, atom.Head: true, atom.Body: true, atom.Address: true, atom.Article: true, atom.Aside: true,
 	atom.Blockquote: true, atom.Center: true, atom.Dd: true, atom.Details: true, atom.Dialog: true, atom.Div: true,
@@ -68,13 +162,15 @@ var blockTags = map[atom.Atom]bool{
 var trackingParams = []string{"fbclid", "gclid", "dclid", "msclkid", "yclid", "igshid", "mc_cid", "mc_eid", "_ga"}
 
 type markdown struct {
-	base     *url.URL
-	hasBlock map[*html.Node]bool // elements with a block inside
-	inLink   int
-	lastLink string // the last link target shown, so a repeat shows only its text
-	quotes   int    // blockquotes open
-	lists    int    // lists open
-	items    int    // list items open, inside a list or not
+	base       *url.URL
+	hasBlock   map[*html.Node]bool // elements with a block inside
+	drop       map[*html.Node]bool // the site's own furniture, left out
+	showHidden bool                // render hidden elements too
+	inLink     int
+	lastLink   string // the last link target shown, so a repeat shows only its text
+	quotes     int    // blockquotes open
+	lists      int    // lists open
+	items      int    // list items open, inside a list or not
 }
 
 // markBlocks fills hasBlock and reports whether n is or holds a block.
@@ -93,7 +189,7 @@ func (m *markdown) markBlocks(n *html.Node) bool {
 // element with a block inside (a custom element, a span around a div), but
 // never a link, whose content stays its text.
 func (m *markdown) isBlock(n *html.Node) bool {
-	return n.Type == html.ElementNode && !hidden(n) && !skipTags[n.DataAtom] && n.DataAtom != atom.A &&
+	return n.Type == html.ElementNode && !m.hidden(n) && !skipped(n) && n.DataAtom != atom.A &&
 		(blockTags[n.DataAtom] || m.hasBlock[n])
 }
 
@@ -109,6 +205,9 @@ func (m *markdown) blocks(n *html.Node, depth int, sep string) string {
 		para.Reset()
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if m.drop[c] {
+			continue
+		}
 		if m.isBlock(c) {
 			flush()
 			if s := m.block(c, depth+1); s != "" {
@@ -171,7 +270,7 @@ func (m *markdown) list(n *html.Node, depth int) string {
 		i = s
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type != html.ElementNode || hidden(c) {
+		if c.Type != html.ElementNode || m.hidden(c) {
 			continue
 		}
 		marker := "- "
@@ -250,7 +349,7 @@ func (m *markdown) cells(n *html.Node, depth int) (cells [][]string, width int, 
 	for _, tr := range tableRows(n) {
 		var row []string
 		for c := tr.FirstChild; c != nil; c = c.NextSibling {
-			if c.DataAtom != atom.Td && c.DataAtom != atom.Th || hidden(c) {
+			if c.DataAtom != atom.Td && c.DataAtom != atom.Th || m.hidden(c) {
 				continue
 			}
 			if layoutCell(c) {
@@ -347,7 +446,7 @@ func (m *markdown) inline(n *html.Node, depth int) string {
 	switch {
 	case n.Type == html.TextNode:
 		return spaceRun.ReplaceAllString(n.Data, " ")
-	case n.Type != html.ElementNode, skipTags[n.DataAtom], hidden(n):
+	case n.Type != html.ElementNode, skipped(n), m.hidden(n), m.drop[n]:
 		return ""
 	case depth > maxDepth:
 		return " " + spaceRun.ReplaceAllString(textOf(n), " ") + " "
@@ -559,7 +658,7 @@ func textOf(n *html.Node) string {
 		case d.DataAtom == atom.Br:
 			b.WriteString("\n")
 		case d.Type == html.ElementNode:
-			open = !skipTags[d.DataAtom] && !hidden(d)
+			open = !skipped(d) && !hidden(d)
 		}
 		if open && d.FirstChild != nil {
 			d = d.FirstChild
@@ -575,6 +674,9 @@ func textOf(n *html.Node) string {
 	}
 	return b.String()
 }
+
+// hidden reports an element the page hides, unless m shows hidden ones.
+func (m *markdown) hidden(n *html.Node) bool { return !m.showHidden && hidden(n) }
 
 // hidden reports an element the page does not show.
 func hidden(n *html.Node) bool {

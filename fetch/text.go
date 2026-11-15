@@ -38,46 +38,116 @@ func NotText(contentType string, body []byte) string {
 var blankLines = regexp.MustCompile(`\n\s*\n+`)
 
 // Text returns readable text: HTML without scripts, styles and tags;
-// other types as is.
+// other types as is. When a page's <noscript> elements, where some apps
+// put the whole page for browsers without JavaScript, hold over twice the
+// text it shows, their text is added.
 func Text(body []byte, contentType string) string {
 	if !isHTML(body, contentType) {
 		return string(body)
 	}
-	var b strings.Builder
+	var w textWalker
 	z := html.NewTokenizer(bytes.NewReader(body))
-	skip := 0
 	for {
 		switch z.Next() {
 		case html.ErrorToken:
-			return strings.TrimSpace(blankLines.ReplaceAllString(b.String(), "\n\n"))
+			return w.result()
 		case html.StartTagToken:
-			name, _ := z.TagName()
-			switch string(name) {
-			case "script", "style", "noscript", "svg", "template":
-				skip++
-			case "p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr", "section", "article":
-				b.WriteString("\n")
-			}
+			w.start(z)
 		case html.EndTagToken:
 			name, _ := z.TagName()
-			switch string(name) {
-			case "script", "style", "noscript", "svg", "template":
-				skip = max(0, skip-1)
-			}
+			w.end(string(name))
 		case html.TextToken:
-			if skip == 0 {
-				if t := strings.Join(strings.Fields(string(z.Text())), " "); t != "" {
-					b.WriteString(t + " ")
-				}
-			}
+			w.text(z.Text())
 		case html.SelfClosingTagToken, html.CommentToken, html.DoctypeToken:
 		}
 	}
 }
 
+// textWalker gathers a page's text, shown and inside <noscript>, as Text's
+// tokenizer walks it.
+type textWalker struct {
+	shown, noscript  strings.Builder
+	skip, inNoscript int
+	noscriptPlain    int    // characters of <noscript> text outside links
+	templates        []bool // per open <template>: whether it is skipped (not a shadow root)
+}
+
+func (w *textWalker) start(z *html.Tokenizer) {
+	name, hasAttr := z.TagName()
+	switch string(name) {
+	case "template":
+		shadow := false
+		for more := hasAttr; more; {
+			var k []byte
+			k, _, more = z.TagAttr()
+			shadow = shadow || string(k) == "shadowrootmode"
+		}
+		w.templates = append(w.templates, !shadow)
+		if !shadow {
+			w.skip++
+		}
+	case "script", "style", "svg":
+		w.skip++
+	case "noscript":
+		w.inNoscript++
+	case "p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr", "section", "article":
+		w.shown.WriteString("\n")
+		w.noscript.WriteString("\n")
+	}
+}
+
+func (w *textWalker) end(name string) {
+	switch name {
+	case "template":
+		if n := len(w.templates); n > 0 {
+			if w.templates[n-1] {
+				w.skip = max(0, w.skip-1)
+			}
+			w.templates = w.templates[:n-1]
+		}
+	case "script", "style", "svg":
+		w.skip = max(0, w.skip-1)
+	case "noscript":
+		w.inNoscript = max(0, w.inNoscript-1)
+	}
+}
+
+// text takes a text token. Inside <noscript> the tokenizer gives the
+// content as raw markup, which is parsed here.
+func (w *textWalker) text(raw []byte) {
+	if w.skip > 0 {
+		return
+	}
+	if w.inNoscript > 0 {
+		text, plain := fragmentText(string(raw))
+		w.noscript.WriteString(text + "\n")
+		w.noscriptPlain += plain
+		return
+	}
+	if t := strings.Join(strings.Fields(string(raw)), " "); t != "" {
+		w.shown.WriteString(t + " ")
+	}
+}
+
+// result is the shown text, with the <noscript> text added when it is
+// over twice as long and more than a menu: 200 characters outside links.
+func (w *textWalker) result() string {
+	text := tidyText(w.shown.String())
+	if alt := tidyText(w.noscript.String()); w.noscriptPlain >= minTrimmed && len([]rune(alt)) > 2*len([]rune(text)) {
+		return strings.TrimSpace(text + "\n\n" + alt)
+	}
+	return text
+}
+
+func tidyText(s string) string { return strings.TrimSpace(blankLines.ReplaceAllString(s, "\n\n")) }
+
 // isHTML reports a body to read as HTML: its type says so, or it starts
-// with a tag.
+// with a tag and is not Markdown, such as a document's text that opens
+// with a "<".
 func isHTML(body []byte, contentType string) bool {
+	if strings.HasPrefix(contentType, "text/markdown") {
+		return false
+	}
 	return strings.Contains(contentType, "html") || bytes.HasPrefix(bytes.TrimSpace(body), []byte("<"))
 }
 
@@ -91,4 +161,45 @@ func Clip(s string, n int) string {
 		count++
 	}
 	return s
+}
+
+// fragmentText is an HTML fragment's text, without scripts and styles,
+// and how many of its characters lie outside links: a menu is all links, a
+// list of topics or a post is not.
+func fragmentText(fragment string) (string, int) {
+	var b strings.Builder
+	plain, links, skip := 0, 0, 0
+	z := html.NewTokenizer(strings.NewReader(fragment))
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			return b.String(), plain
+		case html.StartTagToken:
+			switch name, _ := z.TagName(); string(name) {
+			case "a":
+				links++
+			case "script", "style", "template", "svg":
+				skip++
+			case "p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr", "section", "article":
+				b.WriteString("\n")
+			}
+		case html.EndTagToken:
+			switch name, _ := z.TagName(); string(name) {
+			case "a":
+				links = max(0, links-1)
+			case "script", "style", "template", "svg":
+				skip = max(0, skip-1)
+			}
+		case html.TextToken:
+			t := strings.Join(strings.Fields(string(z.Text())), " ")
+			if skip > 0 || t == "" {
+				continue
+			}
+			b.WriteString(t + " ")
+			if links == 0 {
+				plain += len([]rune(t))
+			}
+		case html.SelfClosingTagToken, html.CommentToken, html.DoctypeToken:
+		}
+	}
 }

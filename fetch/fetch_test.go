@@ -7,10 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	fhttp "github.com/bogdanfinn/fhttp"
 )
 
 type page struct {
@@ -48,6 +52,7 @@ func TestModes(t *testing.T) {
 	cf403 := map[string]page{u: {status: 403, body: "<html><title>Just a moment...</title>challenge-platform</html>"}}
 	cfHeader := map[string]page{u: {status: 403, body: "<html>please wait</html>", mitigated: "challenge"}}
 	pdf := map[string]page{u: {status: 200, body: "%PDF-1.7\n\x00\x01binary", ct: "application/pdf"}}
+	png := map[string]page{u: {status: 200, body: "\x89PNG\r\n\x1a\n\x00", ct: "image/png"}}
 	good := map[string]page{u: {status: 200, body: "<p>release notes</p>"}}
 	tlsErr := map[string]page{u: {err: errors.New("tls: handshake failure")}}
 	timeout := map[string]page{u: {err: context.DeadlineExceeded}}
@@ -60,11 +65,13 @@ func TestModes(t *testing.T) {
 		wantOutcomes  []string
 	}{
 		"always, ok":                   {"", nil, good, "", []string{ClientChromeLike}, []string{OutcomeOK}},
-		"always, refused":              {"", good, refused, "refused (HTTP 403, chrome_like client)", []string{ClientChromeLike}, []string{OutcomeRefused}},
+		"always, refused to backup":    {"", good, refused, "", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeRefused, OutcomeOK}},
+		"always, refused by both":      {"", refused, refused, "refused (HTTP 403, plain_backup client)", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeRefused, OutcomeRefused}},
 		"always, challenge":            {"", good, challenge, "challenge page", []string{ClientChromeLike}, []string{OutcomeChallenge}},
 		"always, 403 challenge page":   {"", good, cf403, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
 		"always, cf-mitigated":         {"", good, cfHeader, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
-		"always, PDF":                  {"", good, pdf, "not a web page or text (application/pdf)", []string{ClientChromeLike}, []string{OutcomeError}},
+		"always, broken PDF":           {"", good, pdf, "could not read the document", []string{ClientChromeLike}, []string{OutcomeError}},
+		"always, image":                {"", good, png, "not a web page or text (image/png)", []string{ClientChromeLike}, []string{OutcomeError}},
 		"fallback on 403 challenge":    {ImpersonateFallback, cf403, good, "", []string{ClientPlain, ClientChromeLike}, []string{OutcomeChallenge, OutcomeOK}},
 		"always, TLS error to backup":  {"", good, tlsErr, "", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeError, OutcomeOK}},
 		"always, no backup on timeout": {"", good, timeout, "deadline", []string{ClientChromeLike}, []string{OutcomeTimeout}},
@@ -234,5 +241,34 @@ func TestOwnAddressRefused(t *testing.T) {
 	}
 	if err := publicOnly("tcp", "93.184.216.35:443", nil); err != nil {
 		t.Errorf("a neighbour on the same network is public: %v", err)
+	}
+}
+
+func TestChromeHeaders(t *testing.T) {
+	cases := map[int]string{
+		157: `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"`, // captured from Chrome 157
+		150: `"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"`,
+		152: `"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"`,
+	}
+	for major, want := range cases {
+		if got := secCHUA(major); got != want {
+			t.Errorf("secCHUA(%d) = %s, want %s", major, got, want)
+		}
+	}
+	v := strconv.Itoa(chromeMajor)
+	if !strings.Contains(chromeProfile.GetClientHelloStr(), v) || !strings.Contains(chromeHeaders["user-agent"][0], "Chrome/"+v+".") ||
+		chromeHeaders["sec-ch-ua"][0] != secCHUA(chromeMajor) {
+		t.Errorf("the TLS profile %s, User-Agent and client hints must name Chrome %s", chromeProfile.GetClientHelloStr(), v)
+	}
+	order := chromeHeaders[fhttp.HeaderOrderKey]
+	for name := range chromeHeaders {
+		if name != fhttp.HeaderOrderKey && !slices.Contains(order, name) {
+			t.Errorf("%s is sent but has no place in the order", name)
+		}
+	}
+	for _, name := range order {
+		if len(chromeHeaders[name]) != 1 || chromeHeaders[name][0] == "" {
+			t.Errorf("%s is in the order but never sent", name)
+		}
 	}
 }

@@ -138,22 +138,68 @@ show how often each path was taken. Step by step:
 2. The hook adds a note next to the failed result telling Claude to call
    `fetch_page` with that URL.
 3. `fetch_page` reads the page with a Go HTTP client whose TLS handshake
-   looks like Chrome's (about 1 s, no JavaScript). A plain Go client is only
-   its backup for the Chrome-like client's own TLS or protocol errors.
+   looks like Chrome's (about 1 s, no JavaScript). A plain Go client, under
+   its own `refetch` name, is the backup for the Chrome-like client's own
+   TLS or protocol errors and for a plain 403 or 429: some sites refuse a
+   browser look-alike from an address that sends them many requests, yet
+   serve an honest client.
 4. For a challenge or JavaScript-only page, it runs your installed Chrome or
-   Chromium headless, for 15 s at most. A challenge counts even when it comes
-   as a 403, as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or
-   429 skips this step, and so does a machine without Chrome.
+   Chromium headless, for 15 s at most. It reads the page once it has loaded
+   and its text stops changing, or, for a page that never finishes loading,
+   whatever it shows at the deadline. It scrolls a few screens first, for
+   content that loads as it comes into view. Ad and analytics hosts are
+   blocked and images are not downloaded. Chrome shows pages the user agent,
+   client hints and screen of a regular window of the installed version, in
+   every frame and worker, and reads the page from an isolated script world
+   that the page's own scripts cannot watch. A captcha wall (DataDome,
+   PerimeterX, Reddit's "prove your humanity") gets one more try in a new
+   tab whose request headers are ordered differently, as sites disagree on
+   which order they let through; refetch never solves a captcha. A challenge
+   counts even when it comes as a 403, as Cloudflare's does (`cf-mitigated:
+   challenge`). A plain 403 or 429 skips this step, and so does a machine
+   without Chrome. A host whose last two fetches in the past week only
+   headless Chrome could read goes straight to it (this needs `stats` on, as
+   it reads the stats database); the HTTP clients still run if it fails.
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 
 `fetch_page` returns a page as Markdown: headings, lists, links, tables and
-code blocks kept, scripts and hidden elements dropped. Links are absolute, and
+code blocks kept, scripts and hidden elements dropped. So is the site's own
+furniture (navigation, banner, footer, sidebars, share buttons, cookie
+notices) unless it holds the page's `<main>`, `<article>` or `<h1>`; if that
+leaves almost nothing, the whole page comes back. Pass `full_page: true` to
+keep it all. Links are absolute, and
 search engines' click-through links point at their targets, so Claude can
 follow a search result or a "next page" link. Only http, https and mailto
 links keep their target, and tracking parameters (`utm_*`, `fbclid`, `gclid`)
-are dropped. Pass `format: "text"` for plain text instead. A PDF, an image or
-another file gets a clear error instead of its bytes.
+are dropped. Pass `format: "text"` for plain text instead. PDFs (their text
+layer; a scan has none) and Word, Excel and PowerPoint files (`.docx`,
+`.xlsx`, `.pptx`) come back as Markdown too, found by their bytes, up to
+32 MB. An image or another file gets a clear error instead of its bytes.
+Links to Google Docs, Sheets, Slides and Drive files are read from their
+export addresses, as the editors' own pages hold no document text.
+
+Some sites serve the same public content better through their own API, and
+`fetch_page` says when it used one:
+
+- Stack Exchange questions (Stack Overflow, Super User, Ask Ubuntu, Server
+  Fault and every `*.stackexchange.com` site) come from the Stack Exchange
+  API, whose sites stop automated readers with a Cloudflare challenge. The
+  question, every answer (accepted first, then by score) and the comments
+  arrive as their Markdown source. Anonymous use allows 300 requests a day
+  per IP address; past that, refetch reads the page as before.
+- Discourse topics come from `/raw/<id>`: every post with its author and
+  date, where the page shows a browser only the first posts.
+- GitHub issues and pull requests whose page hides comments behind "Load
+  more" come from the REST API (60 anonymous requests an hour).
+
+Pages that put their content in `<noscript>` (Discourse lists) or keep it
+hidden until a script shows it (Zendesk help articles) are read from there
+when the visible page is nearly empty. Last comes the page's schema.org
+structured data, which Q&A and forum sites fill with the full question,
+answers or post for search engines: refetch uses it, and says so, when the
+page is nearly empty or is a JavaScript-only shell that headless Chrome
+could not fill, and the data holds at least 200 characters of text.
 
 Claude can pass `render: true` to read a page with headless Chrome even when
 the first step got it (for content that scripts fill in), `render: false` to
@@ -242,7 +288,9 @@ These limits are always on, whatever the settings:
   `render_timeout` and can make requests to public hosts, as in any browser.
 - No cookies are kept between calls: each render uses a throwaway Chrome
   profile.
-- Pages are capped at 2 MB.
+- Pages are capped at 2 MB, and PDF and office files at 32 MB.
+- refetch drives headless Chrome over a pipe, not a debugging port, so no
+  other program on the machine can reach it.
 
 What the address check cannot know: an internal network that uses public IP
 addresses, or a service that trusts your IP address, looks public to it.
