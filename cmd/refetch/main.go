@@ -179,6 +179,7 @@ const (
 // step when they got a challenge or a JavaScript-only page, or always with
 // renderAlways. All attempts are recorded under one fetch id.
 func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
+	url = cmp.Or(fetch.Rewrite(url), url)
 	p, err := fr.f.Get(ctx, url)
 	switch o := p.Last.Outcome; {
 	case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),

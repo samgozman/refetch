@@ -192,3 +192,16 @@ func TestRunStats(t *testing.T) {
 		t.Errorf("stats --reset: %d %q", code, out)
 	}
 }
+
+func TestFetchPageReadsTheExportAddress(t *testing.T) {
+	const doc = "https://docs.google.com/document/d/D0c/edit"
+	const export = "https://docs.google.com/document/d/D0c/export?format=html"
+	fp := &fakePages{page: okPage(article)}
+	usePages(t, fp)
+	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: doc})
+	if err != nil || len(fp.urls) != 1 || fp.urls[0] != export ||
+		!strings.Contains(text, "Source: "+doc+" (") || !strings.Contains(text, "Read from the export address "+export+"\n") {
+		t.Errorf("fetched %v: %q, %v", fp.urls, text, err)
+	}
+}

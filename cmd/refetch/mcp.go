@@ -96,6 +96,9 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		via = fmt.Sprintf("HTTP %d, %s", p.Last.Status, via)
 	}
 	head := fmt.Sprintf("Source: %s (%s)\n", in.URL, via)
+	if export := fetch.Rewrite(in.URL); export != "" {
+		head += "Read from the export address " + export + "\n"
+	}
 	if note := renderNote(p); note != "" {
 		head += note + "\n"
 	}
