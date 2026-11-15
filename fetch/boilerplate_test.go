@@ -3,13 +3,15 @@ package fetch
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMarkdownDropsFurniture(t *testing.T) {
 	body := strings.Repeat("The valley holds forty kinds of songbird, most of them resident all year. ", 4)
 	page := `<html><head><title>Birds</title></head><body>
 		<a class="skip-link" href="#main">Skip to content</a>
-		<ul><li><a href="#search">Skip to search</a></li></ul>
+		<ul><li><a href="#search">
+			Skip <span>to</span> search</a></li></ul>
 		<p><a href="#notes">Skip to the notes</a> is a link in the text? No: <a href="#n">notes below</a>.</p>
 		<header><a href="/">Home</a> <a href="/shop">Shop</a></header>
 		<nav><ul><li><a href="/a">Section A</a></li></ul></nav>
@@ -57,5 +59,17 @@ func TestMarkdownFallsBackToTheWholePage(t *testing.T) {
 	page := `<body><div class="menu"><p>Our menu: soup, bread, cheese.</p></div><nav><a href="/">Home</a></nav></body>`
 	if md := Markdown([]byte(page), "text/html", nil); !strings.Contains(md, "soup, bread, cheese") || !strings.Contains(md, "Home") {
 		t.Errorf("a page that is all furniture comes back whole:\n%s", md)
+	}
+}
+
+func TestMarkdownNestedLinksStayLinear(t *testing.T) {
+	page := "<body><main><h1>Map</h1><p>" + strings.Repeat("A long caption for the map below. ", 10) + "</p>" +
+		"<span>" + strings.Repeat(`<svg><a href="#x">`, 200) + "deep" + "</span></main></body>"
+	start := time.Now()
+	if md := Markdown([]byte(page), "text/html", nil); !strings.Contains(md, "# Map") {
+		t.Errorf("markdown: %.200q", md)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("nested links took %s", took)
 	}
 }

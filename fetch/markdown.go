@@ -43,7 +43,7 @@ func toMarkdown(body []byte, contentType string, page *url.URL, trim bool) strin
 	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}, drop: map[*html.Node]bool{}}
 	m.markBlocks(doc)
 	if trim {
-		m.markBoilerplate(doc, false)
+		m.markBoilerplate(doc, false, 0)
 	}
 	out := strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
 	if trim && len(m.drop) > 0 && len([]rune(out)) < minTrimmed {

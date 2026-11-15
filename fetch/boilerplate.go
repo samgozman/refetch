@@ -26,8 +26,8 @@ var pageRoles = map[string]bool{"banner": true, "navigation": true, "contentinfo
 // element named main, or the <h1>. Furniture that holds the content stays,
 // and so does a <header> or <footer> inside an article, which is the
 // article's own byline or notes.
-func (m *markdown) markBoilerplate(n *html.Node, inArticle bool) bool {
-	if n.Type != html.ElementNode && n.Type != html.DocumentNode {
+func (m *markdown) markBoilerplate(n *html.Node, inArticle bool, depth int) bool {
+	if n.Type != html.ElementNode && n.Type != html.DocumentNode || skipTags[n.DataAtom] || hidden(n) || depth > maxDepth {
 		return false
 	}
 	content := n.DataAtom == atom.Main || n.DataAtom == atom.Article || n.DataAtom == atom.H1 ||
@@ -35,7 +35,7 @@ func (m *markdown) markBoilerplate(n *html.Node, inArticle bool) bool {
 	inner := inArticle || n.DataAtom == atom.Main || n.DataAtom == atom.Article
 	holds := false
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		holds = m.markBoilerplate(c, inner) || holds
+		holds = m.markBoilerplate(c, inner, depth+1) || holds
 	}
 	if !content && !holds && isFurniture(n, inArticle) {
 		m.drop[n] = true
@@ -52,7 +52,7 @@ func isFurniture(n *html.Node, inArticle bool) bool {
 	case atom.Html, atom.Body:
 		return false
 	case atom.A: // "Skip to content": a keyboard shortcut to the content, not part of it
-		return strings.HasPrefix(attr(n, "href"), "#") && strings.HasPrefix(strings.ToLower(strings.TrimSpace(textOf(n))), "skip to")
+		return strings.HasPrefix(attr(n, "href"), "#") && strings.HasPrefix(strings.ToLower(textPrefix(n, 16)), "skip to")
 	default:
 	}
 	if role := attr(n, "role"); pageRoles[role] {
@@ -74,3 +74,30 @@ func isFurniture(n *html.Node, inArticle bool) bool {
 // articleOwn are furniture names that, inside an article, are the
 // article's own header or footer.
 var articleOwn = map[string]bool{"header": true, "footer": true}
+
+// textPrefix is about the first n bytes of an element's text, leading space
+// left out, read without walking the rest of it.
+func textPrefix(n *html.Node, size int) string {
+	var b strings.Builder
+	for d := n.FirstChild; d != nil && b.Len() < size; {
+		if d.Type == html.TextNode {
+			t := d.Data
+			if b.Len() == 0 {
+				t = strings.TrimLeft(t, " \t\n\r")
+			}
+			b.WriteString(t[:min(len(t), size-b.Len())])
+		}
+		if d.FirstChild != nil && d.Type == html.ElementNode {
+			d = d.FirstChild
+			continue
+		}
+		for d != n && d.NextSibling == nil {
+			d = d.Parent
+		}
+		if d == n {
+			break
+		}
+		d = d.NextSibling
+	}
+	return b.String()
+}
