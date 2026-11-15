@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/samgozman/refetch/fetch"
+	"github.com/samgozman/refetch/render"
 	"github.com/samgozman/refetch/site"
 )
 
@@ -35,7 +36,7 @@ func TestSiteRoutes(t *testing.T) {
 	}}
 	fr := &fetcher{f: fp, renderOff: true}
 	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: q})
-	if err != nil || !strings.Contains(text, "(HTTP 200, site API)") || !strings.Contains(text, "Read through the Stack Exchange API") || !strings.Contains(text, "# apt broke") {
+	if err != nil || !strings.Contains(text, "(HTTP 200, site API)") || !strings.Contains(text, "Read from the Stack Exchange API") || !strings.Contains(text, "# apt broke") {
 		t.Errorf("Stack Exchange: %v\n%s", err, text)
 	}
 
@@ -61,5 +62,29 @@ func TestSiteRoutes(t *testing.T) {
 	delete(fp.pages, "https://forum.example.com/raw/9?page=1")
 	if p, err = fr.get(t.Context(), topic, renderAuto); err != nil || p.Via != "" || !strings.Contains(string(p.Body), "First post only.") {
 		t.Errorf("a failed /raw keeps the page: %v, %s", err, p.Body)
+	}
+}
+
+// shellPages returns a JavaScript-only shell, as the HTTP clients would.
+type shellPages struct{ shell string }
+
+func (f shellPages) Get(_ context.Context, u string) (fetch.Page, error) {
+	a := fetch.Attempt{URL: u, Client: fetch.ClientChromeLike, Outcome: fetch.OutcomeNeedsJS, Status: 200}
+	return fetch.Page{Shell: []byte(f.shell), URL: u, Last: a, Attempts: []fetch.Attempt{a}}, errors.New("page needs JavaScript to show its content")
+}
+
+func TestStructuredFallback(t *testing.T) {
+	const u = "https://learn.example.com/answers/questions/5"
+	text := strings.Repeat("Run the repair tool from the installer, then reboot. ", 5)
+	fp := shellPages{shell: `<html><script type="application/ld+json">{"@type":"QAPage","mainEntity":{"@type":"Question","name":"Install fails","text":"It fails.",
+		"acceptedAnswer":{"@type":"Answer","text":"` + text + `"}}}</script><div id="root"></div></html>`}
+	fr := &fetcher{f: fp, r: &fakeRenderer{err: render.ErrTimeout}}
+	out, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: u})
+	if err != nil || !strings.Contains(out, "(structured data)") || !strings.Contains(out, "Read from the page's structured data") || !strings.Contains(out, "Run the repair tool") {
+		t.Errorf("%v\n%s", err, out)
+	}
+	fr.f = shellPages{shell: `<html><div id="root"></div></html>`}
+	if _, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: u}); err == nil {
+		t.Error("a shell with no structured data still fails")
 	}
 }

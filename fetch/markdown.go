@@ -74,6 +74,9 @@ func htmlMarkdown(body []byte, page *url.URL, r render) string {
 		if alt := htmlMarkdown(body, page, r); outweighs(alt, out) {
 			return alt
 		}
+		if alt := structured(doc, page); outweighs(alt, out) {
+			return alt
+		}
 	}
 	return out
 }

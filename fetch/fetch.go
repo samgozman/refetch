@@ -24,6 +24,7 @@ const (
 	ClientChromeLike  = "chrome_like"
 	ClientPlain       = "plain"        // the plain client as the first step (Impersonate off or fallback)
 	ClientPlainBackup = "plain_backup" // the plain client after the Chrome-like client errored
+	ClientStructured  = "structured"   // a JavaScript-only page's structured data, when nothing else read it
 )
 
 // Outcomes of one attempt.
@@ -71,6 +72,7 @@ type Page struct {
 	Last        Attempt   // the attempt that produced Body, or the last failure
 	Attempts    []Attempt // every attempt of this call, in order
 	Via         string    // where the text came from when not the page itself, such as a site's API
+	Shell       []byte    // a JavaScript-only page as the HTTP clients got it, kept for its structured data
 }
 
 // Fetcher gets pages. The zero value impersonates Chrome first and ignores
@@ -176,6 +178,10 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	f.record(p, &a)
 	if err == nil {
 		p.Body, p.ContentType = toUTF8(body, ct)
+		p.URL = r.url
+	}
+	if a.Outcome == OutcomeNeedsJS {
+		p.Shell, _ = toUTF8(body, ct)
 		p.URL = r.url
 	}
 	return err

@@ -185,7 +185,11 @@ Some sites serve the same public content better through their own API, and
 
 Pages that put their content in `<noscript>` (Discourse lists) or keep it
 hidden until a script shows it (Zendesk help articles) are read from there
-when the visible page is nearly empty.
+when the visible page is nearly empty. Last comes the page's schema.org
+structured data, which Q&A and forum sites fill with the full question,
+answers or post for search engines: refetch uses it, and says so, when the
+page is nearly empty or is a JavaScript-only shell that headless Chrome
+could not fill, and the data holds at least 200 characters of text.
 
 Claude can pass `render: true` to read a page with headless Chrome even when
 the first step got it (for content that scripts fill in), `render: false` to

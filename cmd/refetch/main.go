@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -237,6 +238,11 @@ func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch
 		}
 	}
 	p.Attempts = append(tried, p.Attempts...)
+	if err != nil && p.Shell != nil {
+		if sp, ok := structuredPage(url, p); ok {
+			return sp, nil
+		}
+	}
 	if err == nil && mode != renderAlways && strings.Contains(p.ContentType, "html") {
 		if r := site.ForPage(cmp.Or(p.URL, url), p.Body); r != nil {
 			sp, _ := fr.viaSite(ctx, url, r, p)
@@ -244,6 +250,21 @@ func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch
 		}
 	}
 	return p, err
+}
+
+// structuredPage reads a JavaScript-only page that headless Chrome did not
+// fill from the structured data in its HTML, when that holds the text.
+func structuredPage(rawURL string, p fetch.Page) (fetch.Page, bool) {
+	base, _ := neturl.Parse(cmp.Or(p.URL, rawURL))
+	md := fetch.Structured(p.Shell, base)
+	if md == "" {
+		return p, false
+	}
+	_, host := store.NormalizeURL(rawURL)
+	a := fetch.Attempt{URL: rawURL, Host: host, Client: fetch.ClientStructured, Outcome: fetch.OutcomeOK, Bytes: len(md)}
+	p.Body, p.ContentType, p.Last, p.Via = []byte(md), fetch.TypeMarkdown, a, "page's structured data"
+	p.Attempts = append(p.Attempts, a)
+	return p, true
 }
 
 // viaSite reads url through a site's API, as one attempt after p's. On

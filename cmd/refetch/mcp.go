@@ -33,6 +33,7 @@ var clientNames = map[string]string{
 	fetch.ClientPlainBackup: "plain backup client",
 	render.Client:           "headless Chrome",
 	site.Client:             "site API",
+	fetch.ClientStructured:  "structured data",
 }
 
 type fetchInput struct {
@@ -103,7 +104,7 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		head += "Read from the export address " + export + "\n"
 	}
 	if p.Via != "" {
-		head += "Read through the " + p.Via + ", which serves this page's content\n"
+		head += "Read from the " + p.Via + ", not the page as a browser shows it\n"
 	}
 	if note := renderNote(p); note != "" {
 		head += note + "\n"
