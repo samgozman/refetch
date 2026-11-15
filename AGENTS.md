@@ -30,6 +30,8 @@ fetcher and the stats report. The repo root is also the Claude Code plugin.
 - `render/`: the headless Chrome step: Chrome discovery, the local proxy on
   the public-only dialer, the DevTools protocol over `--remote-debugging-pipe`
   under `render_timeout`
+- `site/`: a site's own public API in place of its page: Stack Exchange
+  questions, Discourse topics (`/raw`), long GitHub issues
 - `store/`: SQLite event log (`tool_calls`, `attempts`, `daily` roll-up)
 - `stats/`: the funnel and its text report
 - `config/`: defaults, `config.toml`, `REFETCH_*` env vars

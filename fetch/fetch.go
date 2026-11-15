@@ -70,6 +70,7 @@ type Page struct {
 	URL         string    // where Body came from, after redirects; "" when unknown
 	Last        Attempt   // the attempt that produced Body, or the last failure
 	Attempts    []Attempt // every attempt of this call, in order
+	Via         string    // where the text came from when not the page itself, such as a site's API
 }
 
 // Fetcher gets pages. The zero value impersonates Chrome first and ignores

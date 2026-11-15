@@ -20,6 +20,7 @@ import (
 	"github.com/samgozman/refetch/config"
 	"github.com/samgozman/refetch/fetch"
 	"github.com/samgozman/refetch/render"
+	"github.com/samgozman/refetch/site"
 	"github.com/samgozman/refetch/store"
 )
 
@@ -194,18 +195,7 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 		return fetch.Page{}, fmt.Errorf("not an http(s) URL: %q", url)
 	}
 	url = cmp.Or(fetch.Rewrite(url), url)
-	var p fetch.Page
-	var err error
-	if mode == renderAuto && fr.remembered(ctx, url) {
-		p, err = fr.renderFirst(ctx, url)
-	} else {
-		p, err = fr.f.Get(ctx, url)
-		switch o := p.Last.Outcome; {
-		case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
-			mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
-			p, err = fr.renderStep(ctx, url, mode, p, err)
-		}
-	}
+	p, err := fr.read(ctx, url, mode)
 	if fr.st != nil {
 		id := uuid.New().String()
 		for _, a := range p.Attempts {
@@ -219,6 +209,70 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 		}
 	}
 	return p, err
+}
+
+// read runs the steps for one page: a site's API for a page its address
+// names (a Stack Exchange question), else the HTTP clients and headless
+// Chrome, then a site's API for a page its markup names (a Discourse
+// topic). render: true goes to the page itself.
+func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
+	var tried []fetch.Attempt
+	if r := site.ForURL(url); r != nil && mode != renderAlways {
+		sp, ok := fr.viaSite(ctx, url, r, fetch.Page{})
+		if ok {
+			return sp, nil
+		}
+		tried = sp.Attempts
+	}
+	var p fetch.Page
+	var err error
+	if mode == renderAuto && fr.remembered(ctx, url) {
+		p, err = fr.renderFirst(ctx, url)
+	} else {
+		p, err = fr.f.Get(ctx, url)
+		switch o := p.Last.Outcome; {
+		case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
+			mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
+			p, err = fr.renderStep(ctx, url, mode, p, err)
+		}
+	}
+	p.Attempts = append(tried, p.Attempts...)
+	if err == nil && mode != renderAlways && strings.Contains(p.ContentType, "html") {
+		if r := site.ForPage(cmp.Or(p.URL, url), p.Body); r != nil {
+			sp, _ := fr.viaSite(ctx, url, r, p)
+			return sp, nil
+		}
+	}
+	return p, err
+}
+
+// viaSite reads url through a site's API, as one attempt after p's. On
+// success the page is the API's Markdown; on failure p comes back with the
+// failed attempt added.
+func (fr *fetcher) viaSite(ctx context.Context, url string, r *site.Route, p fetch.Page) (fetch.Page, bool) {
+	_, host := store.NormalizeURL(url)
+	a := fetch.Attempt{URL: url, Host: host, Client: site.Client}
+	start := time.Now()
+	md, err := r.Read(ctx, func(ctx context.Context, u string) ([]byte, error) {
+		got, err := fr.f.Get(ctx, u)
+		a.Status = got.Last.Status
+		return got.Body, err
+	})
+	a.Duration, a.Bytes = time.Since(start), len(md)
+	if err != nil {
+		a.Outcome, a.Err = fetch.OutcomeError, r.Name+": "+err.Error()
+		if isTimeoutErr(err) {
+			a.Outcome = fetch.OutcomeTimeout
+		}
+		p.Attempts = append(p.Attempts, a)
+		return p, false
+	}
+	a.Outcome = fetch.OutcomeOK
+	return fetch.Page{Body: []byte(md), ContentType: fetch.TypeMarkdown, URL: url, Last: a, Attempts: append(p.Attempts, a), Via: r.Name}, true
+}
+
+func isTimeoutErr(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout")
 }
 
 // Remembered hosts: headless Chrome alone read the host's last

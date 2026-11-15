@@ -19,6 +19,7 @@ import (
 	"github.com/samgozman/refetch/config"
 	"github.com/samgozman/refetch/fetch"
 	"github.com/samgozman/refetch/render"
+	"github.com/samgozman/refetch/site"
 )
 
 const (
@@ -31,6 +32,7 @@ var clientNames = map[string]string{
 	fetch.ClientPlain:       "plain client",
 	fetch.ClientPlainBackup: "plain backup client",
 	render.Client:           "headless Chrome",
+	site.Client:             "site API",
 }
 
 type fetchInput struct {
@@ -99,6 +101,9 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 	head := fmt.Sprintf("Source: %s (%s)\n", in.URL, via)
 	if export := fetch.Rewrite(in.URL); export != "" {
 		head += "Read from the export address " + export + "\n"
+	}
+	if p.Via != "" {
+		head += "Read through the " + p.Via + ", which serves this page's content\n"
 	}
 	if note := renderNote(p); note != "" {
 		head += note + "\n"

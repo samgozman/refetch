@@ -169,6 +169,24 @@ layer; a scan has none) and Word, Excel and PowerPoint files (`.docx`,
 Links to Google Docs, Sheets, Slides and Drive files are read from their
 export addresses, as the editors' own pages hold no document text.
 
+Some sites serve the same public content better through their own API, and
+`fetch_page` says when it used one:
+
+- Stack Exchange questions (Stack Overflow, Super User, Ask Ubuntu, Server
+  Fault and every `*.stackexchange.com` site) come from the Stack Exchange
+  API, whose sites stop automated readers with a Cloudflare challenge. The
+  question, every answer (accepted first, then by score) and the comments
+  arrive as their Markdown source. Anonymous use allows 300 requests a day
+  per IP address; past that, refetch reads the page as before.
+- Discourse topics come from `/raw/<id>`: every post with its author and
+  date, where the page shows a browser only the first posts.
+- GitHub issues and pull requests whose page hides comments behind "Load
+  more" come from the REST API (60 anonymous requests an hour).
+
+Pages that put their content in `<noscript>` (Discourse lists) or keep it
+hidden until a script shows it (Zendesk help articles) are read from there
+when the visible page is nearly empty.
+
 Claude can pass `render: true` to read a page with headless Chrome even when
 the first step got it (for content that scripts fill in), `render: false` to
 skip headless Chrome for one call, and `save: true` to get a file path and a
