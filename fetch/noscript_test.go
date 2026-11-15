@@ -66,3 +66,17 @@ func TestHiddenContentOfAThinPage(t *testing.T) {
 		t.Errorf("a page with its own content keeps hidden parts hidden:\n%.400s", md)
 	}
 }
+
+func TestShadowRoots(t *testing.T) {
+	page := `<html><body><article><h1>Case 0042</h1><case-view><template shadowrootmode="open"><section><h2>Resolution</h2><p>` +
+		strings.Repeat("Reset the license server, then sync the seats. ", 6) + `</p><slot></slot></section></template><p>Light text.</p></case-view>` +
+		`<template id="row"><p>A row template, never shown.</p></template></article></body></html>`
+	md := Markdown([]byte(page), "text/html", nil)
+	if !strings.Contains(md, "## Resolution") || !strings.Contains(md, "license server") || !strings.Contains(md, "Light text.") || strings.Contains(md, "row template") {
+		t.Errorf("markdown:\n%s", md)
+	}
+	text := Text([]byte(page), "text/html")
+	if !strings.Contains(text, "license server") || strings.Contains(text, "row template") {
+		t.Errorf("text: %q", text)
+	}
+}

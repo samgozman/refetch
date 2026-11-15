@@ -27,7 +27,7 @@ var pageRoles = map[string]bool{"banner": true, "navigation": true, "contentinfo
 // and so does a <header> or <footer> inside an article, which is the
 // article's own byline or notes.
 func (m *markdown) markBoilerplate(n *html.Node, inArticle bool, depth int) bool {
-	if n.Type != html.ElementNode && n.Type != html.DocumentNode || skipTags[n.DataAtom] || hidden(n) || depth > maxDepth {
+	if n.Type != html.ElementNode && n.Type != html.DocumentNode || skipped(n) || hidden(n) || depth > maxDepth {
 		return false
 	}
 	content := n.DataAtom == atom.Main || n.DataAtom == atom.Article || n.DataAtom == atom.H1 ||

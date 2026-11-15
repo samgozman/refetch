@@ -140,6 +140,13 @@ var skipTags = map[atom.Atom]bool{
 	atom.Textarea: true, atom.Button: true, atom.Img: true, atom.Picture: true, atom.Video: true, atom.Audio: true,
 }
 
+// skipped reports an element whose content is no page text. A <template>
+// is skipped unless it is a shadow root, as headless Chrome writes the
+// content of web components: <template shadowrootmode="open">.
+func skipped(n *html.Node) bool {
+	return skipTags[n.DataAtom] && (n.DataAtom != atom.Template || attr(n, "shadowrootmode") == "")
+}
+
 var blockTags = map[atom.Atom]bool{
 	atom.Html: true, atom.Head: true, atom.Body: true, atom.Address: true, atom.Article: true, atom.Aside: true,
 	atom.Blockquote: true, atom.Center: true, atom.Dd: true, atom.Details: true, atom.Dialog: true, atom.Div: true,
@@ -182,7 +189,7 @@ func (m *markdown) markBlocks(n *html.Node) bool {
 // element with a block inside (a custom element, a span around a div), but
 // never a link, whose content stays its text.
 func (m *markdown) isBlock(n *html.Node) bool {
-	return n.Type == html.ElementNode && !m.hidden(n) && !skipTags[n.DataAtom] && n.DataAtom != atom.A &&
+	return n.Type == html.ElementNode && !m.hidden(n) && !skipped(n) && n.DataAtom != atom.A &&
 		(blockTags[n.DataAtom] || m.hasBlock[n])
 }
 
@@ -439,7 +446,7 @@ func (m *markdown) inline(n *html.Node, depth int) string {
 	switch {
 	case n.Type == html.TextNode:
 		return spaceRun.ReplaceAllString(n.Data, " ")
-	case n.Type != html.ElementNode, skipTags[n.DataAtom], m.hidden(n), m.drop[n]:
+	case n.Type != html.ElementNode, skipped(n), m.hidden(n), m.drop[n]:
 		return ""
 	case depth > maxDepth:
 		return " " + spaceRun.ReplaceAllString(textOf(n), " ") + " "
@@ -651,7 +658,7 @@ func textOf(n *html.Node) string {
 		case d.DataAtom == atom.Br:
 			b.WriteString("\n")
 		case d.Type == html.ElementNode:
-			open = !skipTags[d.DataAtom] && !hidden(d)
+			open = !skipped(d) && !hidden(d)
 		}
 		if open && d.FirstChild != nil {
 			d = d.FirstChild

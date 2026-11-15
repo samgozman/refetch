@@ -41,6 +41,11 @@ func site(t *testing.T) *httptest.Server {
 		case "/tracked":
 			_, _ = w.Write([]byte(`<html><body><h1>Secret word: plum</h1><p id="ua"></p><script src="/tracker.js"></script>
 				<script>document.getElementById("ua").textContent = "webdriver=" + navigator.webdriver</script></body></html>`))
+		case "/component": // the text lives in a web component's shadow root
+			_, _ = w.Write([]byte(`<html><body><h1>Case</h1><case-view></case-view><script>
+				customElements.define("case-view", class extends HTMLElement { connectedCallback() {
+					this.attachShadow({mode: "open"}).innerHTML = "<p>Secret word: quince, from the orchard notes.</p>"; } });
+				</script></body></html>`))
 		case "/fingerprint":
 			_, _ = w.Write([]byte(fingerprintPage))
 		case "/tracker.js":
@@ -267,6 +272,16 @@ func TestNoUsableSandbox(t *testing.T) {
 	r := &Renderer{Chrome: chrome, Timeout: 5 * time.Second, dial: loopbackDial}
 	if _, err := r.Render(t.Context(), "https://example.com/"); !errors.Is(err, ErrSandbox) {
 		t.Errorf("Chrome without a sandbox: %v", err)
+	}
+}
+
+func TestRenderReadsShadowRoots(t *testing.T) {
+	chrome := chromeOrSkip(t)
+	srv := site(t)
+	r := &Renderer{Chrome: chrome, Timeout: 10 * time.Second, dial: loopbackDial}
+	p, err := r.Render(t.Context(), srv.URL+"/component")
+	if err != nil || !strings.Contains(string(p.DOM), `<template shadowrootmode="open"><p>Secret word: quince`) {
+		t.Errorf("err %v, dom %.400q", err, p.DOM)
 	}
 }
 
