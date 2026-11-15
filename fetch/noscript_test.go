@@ -52,3 +52,17 @@ func TestShellDetection(t *testing.T) {
 		t.Error("a short page is a short page")
 	}
 }
+
+func TestHiddenContentOfAThinPage(t *testing.T) {
+	page := `<html><head><title>Agent sign-in – Help</title></head><body><main><div id="articlePage"></div>
+		<div id="article-body" style="display: none;"><h2>Answer</h2><p>` + strings.Repeat("The audit log captures agent sign-in times. ", 8) + `</p></div>
+		<div hidden>menu</div></main></body></html>`
+	if md := Markdown([]byte(page), "text/html", nil); !strings.Contains(md, "## Answer") || !strings.Contains(md, "audit log") {
+		t.Errorf("a thin page's hidden article:\n%.400s", md)
+	}
+	full := `<html><body><article><h1>Notes</h1><p>` + strings.Repeat("Shared notebooks are on every plan. ", 10) + `</p>` +
+		`<div style="display:none">` + strings.Repeat("Hidden promo text. ", 40) + `</div></article></body></html>`
+	if md := Markdown([]byte(full), "text/html", nil); strings.Contains(md, "promo") {
+		t.Errorf("a page with its own content keeps hidden parts hidden:\n%.400s", md)
+	}
+}
