@@ -178,14 +178,21 @@ const (
 
 // get fetches one page: the HTTP clients first, then the headless Chrome
 // step when they got a challenge or a JavaScript-only page, or always with
-// renderAlways. All attempts are recorded under one fetch id.
+// renderAlways. A host that recently needed headless Chrome every time
+// goes to it first. All attempts are recorded under one fetch id.
 func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
 	url = cmp.Or(fetch.Rewrite(url), url)
-	p, err := fr.f.Get(ctx, url)
-	switch o := p.Last.Outcome; {
-	case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
-		mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
-		p, err = fr.renderStep(ctx, url, mode, p, err)
+	var p fetch.Page
+	var err error
+	if mode == renderAuto && fr.remembered(ctx, url) {
+		p, err = fr.renderFirst(ctx, url)
+	} else {
+		p, err = fr.f.Get(ctx, url)
+		switch o := p.Last.Outcome; {
+		case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
+			mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
+			p, err = fr.renderStep(ctx, url, mode, p, err)
+		}
 	}
 	if fr.st != nil {
 		id := uuid.New().String()
@@ -202,6 +209,37 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 	return p, err
 }
 
+// Remembered hosts: headless Chrome alone read the host's last
+// rememberFetches fetches, within rememberFor. Past that the HTTP clients
+// get another try, in case the site changed.
+const (
+	rememberFetches = 2
+	rememberFor     = 7 * 24 * time.Hour
+)
+
+// remembered reports whether url's host goes to headless Chrome first.
+func (fr *fetcher) remembered(ctx context.Context, url string) bool {
+	if fr.st == nil || fr.renderOff {
+		return false
+	}
+	_, host := store.NormalizeURL(url)
+	ok, err := fr.st.NeedsRender(ctx, host, time.Now().Add(-rememberFor), rememberFetches)
+	return err == nil && ok
+}
+
+// renderFirst reads a remembered host's page with headless Chrome, and with
+// the HTTP clients only if that fails; headless Chrome does not run twice.
+func (fr *fetcher) renderFirst(ctx context.Context, url string) (fetch.Page, error) {
+	_, host := store.NormalizeURL(url)
+	a, rp := fr.renderAttempt(ctx, url, host)
+	if a.Outcome == fetch.OutcomeOK {
+		return renderedPage(fetch.Page{Attempts: []fetch.Attempt{a}}, a, rp), nil
+	}
+	p, err := fr.f.Get(ctx, url)
+	p.Attempts = append([]fetch.Attempt{a}, p.Attempts...)
+	return p, err
+}
+
 // renderStep runs step 2, or records why it did not run. A skipped step
 // leaves p.Last on the HTTP attempt, whose outcome the hand-off explains;
 // so does a failed one after the HTTP clients read the page.
@@ -214,35 +252,12 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, 
 	case mode == renderNever:
 		a.Outcome = render.OutcomeSkippedByCall
 	default:
-		start := time.Now()
-		var err error
-		rp, err = fr.r.Render(ctx, url)
-		a.Duration, a.Bytes = time.Since(start), len(rp.DOM)
-		switch {
-		case errors.Is(err, render.ErrNoChrome):
-			a.Outcome = render.OutcomeNoChrome
-		case errors.Is(err, render.ErrRoot):
-			a.Outcome = render.OutcomeSkippedRoot
-		case errors.Is(err, render.ErrTimeout):
-			a.Outcome, a.Err = fetch.OutcomeTimeout, err.Error()
-		case err != nil:
-			a.Outcome, a.Err = fetch.OutcomeError, err.Error()
-		case fetch.Challenge(http.StatusOK, rp.DOM):
-			a.Outcome, a.Err = fetch.OutcomeChallenge, "headless Chrome got the challenge page too"
-		case fetch.EmptyRendered(rp.DOM):
-			a.Outcome, a.Err = fetch.OutcomeNeedsJS, "the page was still empty after headless Chrome ran its scripts"
-		default:
-			a.Outcome = fetch.OutcomeOK
-		}
+		a, rp = fr.renderAttempt(ctx, url, p.Last.Host)
 	}
 	p.Attempts = append(p.Attempts, a)
 	switch a.Outcome {
 	case fetch.OutcomeOK:
-		p.Body, p.ContentType, p.Last = rp.DOM, "text/html", a
-		if strings.HasPrefix(rp.URL, "https://") || strings.HasPrefix(rp.URL, "http://") { // where links resolve
-			p.URL = rp.URL
-		}
-		return p, nil
+		return renderedPage(p, a, rp), nil
 	case render.OutcomeSkippedOff, render.OutcomeSkippedByCall, render.OutcomeNoChrome, render.OutcomeSkippedRoot:
 		return p, httpErr
 	}
@@ -251,6 +266,40 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, 
 	}
 	p.Last = a
 	return p, fmt.Errorf("%w; then %s", httpErr, cmp.Or(a.Err, a.Outcome))
+}
+
+// renderAttempt runs headless Chrome on url and names the outcome.
+func (fr *fetcher) renderAttempt(ctx context.Context, url, host string) (fetch.Attempt, render.Page) {
+	a := fetch.Attempt{URL: url, Host: host, Client: render.Client}
+	start := time.Now()
+	rp, err := fr.r.Render(ctx, url)
+	a.Duration, a.Bytes = time.Since(start), len(rp.DOM)
+	switch {
+	case errors.Is(err, render.ErrNoChrome):
+		a.Outcome = render.OutcomeNoChrome
+	case errors.Is(err, render.ErrRoot):
+		a.Outcome = render.OutcomeSkippedRoot
+	case errors.Is(err, render.ErrTimeout):
+		a.Outcome, a.Err = fetch.OutcomeTimeout, err.Error()
+	case err != nil:
+		a.Outcome, a.Err = fetch.OutcomeError, err.Error()
+	case fetch.Challenge(http.StatusOK, rp.DOM):
+		a.Outcome, a.Err = fetch.OutcomeChallenge, "headless Chrome got the challenge page too"
+	case fetch.EmptyRendered(rp.DOM):
+		a.Outcome, a.Err = fetch.OutcomeNeedsJS, "the page was still empty after headless Chrome ran its scripts"
+	default:
+		a.Outcome = fetch.OutcomeOK
+	}
+	return a, rp
+}
+
+// renderedPage is p with headless Chrome's DOM as its body.
+func renderedPage(p fetch.Page, a fetch.Attempt, rp render.Page) fetch.Page {
+	p.Body, p.ContentType, p.Last = rp.DOM, "text/html", a
+	if strings.HasPrefix(rp.URL, "https://") || strings.HasPrefix(rp.URL, "http://") { // where links resolve
+		p.URL = rp.URL
+	}
+	return p
 }
 
 func (fr *fetcher) close() {

@@ -135,3 +135,21 @@ func TestHeadlessStep(t *testing.T) {
 		}
 	}
 }
+
+func TestRememberedHostWin(t *testing.T) {
+	t0 := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	calls := []store.ToolCall{
+		{Time: t0, SessionID: "s", Tool: "WebFetch", URL: "https://x.com/feed", Host: "x.com", Outcome: store.CallFailed},
+		{Time: t0.Add(10 * time.Second), SessionID: "s", Tool: fp, URL: "https://x.com/feed", Host: "x.com", Outcome: store.CallOK},
+	}
+	attempts := []store.Attempt{{Time: t0.Add(9 * time.Second), FetchID: "a", URL: "https://x.com/feed", Host: "x.com", Client: "headless", Outcome: "ok", Duration: 2 * time.Second}}
+	r := Build(calls, attempts, Options{Since: t0}, t0.Add(time.Minute))
+	if r.HeadlessWins["remembered"] != 1 {
+		t.Errorf("wins %v", r.HeadlessWins)
+	}
+	var buf bytes.Buffer
+	r.WriteText(&buf, Header{Version: "dev"})
+	if !strings.Contains(buf.String(), "remembered host 1") {
+		t.Errorf("text:\n%s", buf.String())
+	}
+}

@@ -146,7 +146,10 @@ show how often each path was taken. Step by step:
    whatever it shows at the deadline. Ad and analytics hosts are blocked and
    images are not downloaded. A challenge counts even when it comes as a 403,
    as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or 429 skips
-   this step, and so does a machine without Chrome.
+   this step, and so does a machine without Chrome. A host whose last two
+   fetches in the past week only headless Chrome could read goes straight to
+   it (this needs `stats` on, as it reads the stats database); the HTTP
+   clients still run if it fails.
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 
