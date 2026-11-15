@@ -156,7 +156,7 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 		a.Outcome = OutcomeError
 		err = fmt.Errorf("HTTP %d (%s client)", status, client)
 	case NotText(ct, body) != "":
-		md, ok, derr := Document(body)
+		md, ok, derr := Document(ctx, body)
 		switch {
 		case !ok:
 			a.Outcome = OutcomeError

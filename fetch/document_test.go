@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // makePDF builds a one-page PDF whose page draws content with Helvetica.
@@ -72,30 +73,48 @@ func wPara(style, text string) string {
 }
 
 func TestDocumentPDF(t *testing.T) {
-	md, ok, err := Document(makePDF("BT /F1 12 Tf 72 720 Td (Quarterly report) Tj 0 -14 Td (second line) Tj 0 -40 Td (A new paragraph) Tj ET"))
+	md, ok, err := Document(t.Context(), makePDF("BT /F1 12 Tf 72 720 Td (Quarterly report) Tj 0 -14 Td (second line) Tj 0 -40 Td (A new paragraph) Tj ET"))
 	if !ok || err != nil || md != "Quarterly report\nsecond line\n\nA new paragraph" {
 		t.Errorf("PDF: %v %v %q", ok, err, md)
 	}
-	_, ok, err = Document(makePDF("0 0 1 rg 0 0 100 100 re f"))
+	_, ok, err = Document(t.Context(), makePDF("0 0 1 rg 0 0 100 100 re f"))
 	if !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "no text layer") {
 		t.Errorf("scanned PDF: %v %v", ok, err)
 	}
-	if _, ok, err = Document([]byte("%PDF-1.7\n\x00 garbage")); !ok || !errors.Is(err, ErrDocument) {
+	if _, ok, err = Document(t.Context(), []byte("%PDF-1.7\n\x00 garbage")); !ok || !errors.Is(err, ErrDocument) {
 		t.Errorf("broken PDF: %v %v", ok, err)
 	}
 	var z bytes.Buffer
 	zw := zlib.NewWriter(&z)
 	_, _ = zw.Write([]byte("BT /F1 12 Tf 72 720 Td (x) Tj ET " + strings.Repeat(" ", maxPageUnpacked)))
 	_ = zw.Close()
-	if _, ok, err = Document(makePDFStream(z.String(), "/Filter /FlateDecode")); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "unpacks to more") {
+	if _, ok, err = Document(t.Context(), makePDFStream(z.String(), "/Filter /FlateDecode")); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "unpacks to more") {
 		t.Errorf("a stream that unpacks past the limit: %v %v", ok, err)
 	}
 	z.Reset()
 	zw = zlib.NewWriter(&z)
 	_, _ = zw.Write([]byte("BT /F1 12 Tf 72 720 Td (Compressed text) Tj ET"))
 	_ = zw.Close()
-	if md, ok, err := Document(makePDFStream(z.String(), "/Filter /FlateDecode")); !ok || err != nil || md != "Compressed text" {
+	if md, ok, err := Document(t.Context(), makePDFStream(z.String(), "/Filter /FlateDecode")); !ok || err != nil || md != "Compressed text" {
 		t.Errorf("compressed PDF: %v %v %q", ok, err, md)
+	}
+}
+
+func TestDocumentPDFWorkLimits(t *testing.T) {
+	glyphs := "BT /F1 12 Tf 72 720 Td (" + strings.Repeat("a", maxPageGlyphs+1) + ") Tj ET"
+	switches := "BT " + strings.Repeat("/F1 12 Tf ", maxFontSwitches+1) + "72 720 Td (x) Tj ET"
+	for name, content := range map[string]string{"glyphs": glyphs, "font switches": switches} {
+		if _, ok, err := Document(t.Context(), makePDF(content)); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "more work") {
+			t.Errorf("%s: %v %v", name, ok, err)
+		}
+	}
+
+	old := pdfTimeout
+	pdfTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { pdfTimeout = old })
+	loop := bytes.Replace(makePDF("BT ET"), []byte("/Kids [3 0 R] /Count 1"), []byte("/Kids [2 0 R] /Count 9"), 1)
+	if _, ok, err := Document(t.Context(), loop); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "took over") {
+		t.Errorf("a page tree that holds itself: %v %v", ok, err)
 	}
 }
 
@@ -107,7 +126,7 @@ func TestDocumentDocx(t *testing.T) {
 		`<w:tr><w:tc>` + wPara("", "Robin") + `</w:tc><w:tc>` + wPara("", "20 | 22 cm") + `</w:tc></w:tr></w:tbl>` +
 		wPara("", "Line one<w:br/>line two")
 	doc := makeZip(t, map[string]string{"word/document.xml": `<w:document ` + wNS + `><w:body>` + body + `</w:body></w:document>`})
-	md, ok, err := Document(doc)
+	md, ok, err := Document(t.Context(), doc)
 	want := "# Field guide\n\n## Birds\n\nCommon birds of the valley\n\n- wren\n\n| Name | Wingspan |\n| --- | --- |\n| Robin | 20 \\| 22 cm |\n\nLine one\nline two"
 	if !ok || err != nil || md != want {
 		t.Errorf("docx: %v %v\n%s", ok, err, md)
@@ -127,7 +146,7 @@ func TestDocumentXlsx(t *testing.T) {
 			`</sheetData></worksheet>`,
 		"xl/worksheets/sheet2.xml": `<worksheet><sheetData/></worksheet>`,
 	})
-	md, ok, err := Document(book)
+	md, ok, err := Document(t.Context(), book)
 	want := "## Prices\n\n| Item |  | Price |\n| --- | --- | --- |\n| Tea | TRUE | 4.5 |\n| Cake |  | 3 |"
 	if !ok || err != nil || md != want {
 		t.Errorf("xlsx: %v %v\n%s", ok, err, md)
@@ -145,7 +164,7 @@ func TestDocumentXlsxLimits(t *testing.T) {
 		"xl/sharedStrings.xml":       `<sst><si><t>` + strings.Repeat("long text ", maxSheetText/2000) + `</t></si></sst>`,
 		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData>` + rows.String() + `</sheetData></worksheet>`,
 	})
-	md, ok, err := Document(book)
+	md, ok, err := Document(t.Context(), book)
 	if !ok || err != nil || len(md) > maxSheetText+64<<10 || !strings.Contains(md, "(stopped at") || strings.Contains(md, "Never") {
 		t.Errorf("xlsx limits: %v %v, %d bytes, ends %q", ok, err, len(md), md[max(0, len(md)-80):])
 	}
@@ -169,7 +188,7 @@ func TestDocumentPptx(t *testing.T) {
 		"ppt/slides/slide1.xml": slide("Roadmap", "Ship in May"),
 		"ppt/slides/slide2.xml": slide("Welcome"),
 	})
-	md, ok, err := Document(deck)
+	md, ok, err := Document(t.Context(), deck)
 	if want := "## Slide 1\n\nWelcome\n\n## Slide 2\n\nRoadmap\n\nShip in May"; !ok || err != nil || md != want {
 		t.Errorf("pptx: %v %v\n%s", ok, err, md)
 	}
@@ -181,15 +200,15 @@ func TestDocumentOther(t *testing.T) {
 		"plain zip": makeZip(t, map[string]string{"readme.txt": "hi"}),
 		"bad zip":   []byte("PK\x03\x04 not really"),
 	} {
-		if _, ok, err := Document(body); ok || err != nil {
+		if _, ok, err := Document(t.Context(), body); ok || err != nil {
 			t.Errorf("%s: ok %v, err %v", name, ok, err)
 		}
 	}
 	bomb := makeZip(t, map[string]string{"word/document.xml": `<w:document ` + wNS + `><w:body>` + strings.Repeat(" ", maxPartBytes+1) + `</w:body></w:document>`})
-	if _, ok, err := Document(bomb); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "unpacks to more than") {
+	if _, ok, err := Document(t.Context(), bomb); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "unpacks to more than") {
 		t.Errorf("oversized part: %v %v", ok, err)
 	}
-	if _, ok, err := Document(makeZip(t, map[string]string{"word/document.xml": "<w:document><unclosed"})); !ok || !errors.Is(err, ErrDocument) {
+	if _, ok, err := Document(t.Context(), makeZip(t, map[string]string{"word/document.xml": "<w:document><unclosed"})); !ok || !errors.Is(err, ErrDocument) {
 		t.Errorf("broken XML: %v %v", ok, err)
 	}
 }

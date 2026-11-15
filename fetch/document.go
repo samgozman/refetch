@@ -3,12 +3,14 @@ package fetch
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ledongthuc/pdf"
 )
@@ -36,10 +38,10 @@ func isDocType(mt string) bool { return slices.Contains(docTypes, mt) }
 // Document returns a PDF, Word, Excel or PowerPoint file as Markdown, found
 // by its bytes, not its name or type. ok is false for any other file; err
 // is set for a document that could not be read, wrapping ErrDocument.
-func Document(body []byte) (md string, ok bool, err error) {
+func Document(ctx context.Context, body []byte) (md string, ok bool, err error) {
 	switch {
 	case bytes.HasPrefix(body, []byte("%PDF-")):
-		md, err = pdfText(body)
+		md, err = pdfWithin(ctx, body)
 		return md, true, err
 	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
 		zr, zerr := zip.NewReader(bytes.NewReader(body), int64(len(body)))
@@ -62,6 +64,33 @@ func Document(body []byte) (md string, ok bool, err error) {
 	return "", false, nil
 }
 
+// pdfTimeout caps a PDF's reading: the parser loops forever on a page tree
+// that holds itself. Past it the call gives up, and the parse is left to
+// end on its own.
+var pdfTimeout = 20 * time.Second // tests shorten it
+
+func pdfWithin(ctx context.Context, body []byte) (string, error) {
+	type result struct {
+		md  string
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		md, err := pdfText(body)
+		done <- result{md, err}
+	}()
+	timer := time.NewTimer(pdfTimeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.md, r.err
+	case <-ctx.Done():
+		return "", fmt.Errorf("%w: %w", ErrDocument, ctx.Err())
+	case <-timer.C:
+		return "", fmt.Errorf("%w: the PDF took over %s to read", ErrDocument, pdfTimeout)
+	}
+}
+
 // pdfText reads the text layer of every page; a scanned PDF has none.
 func pdfText(body []byte) (text string, err error) {
 	defer func() {
@@ -80,11 +109,9 @@ func pdfText(body []byte) (text string, err error) {
 		if p.V.IsNull() {
 			continue
 		}
-		limit := min(budget, maxPageUnpacked)
-		n := pageUnpacked(p, limit)
-		if n > limit {
-			return "", fmt.Errorf("%w: page %d unpacks to more than refetch reads (%d MB a page, %d MB a file)",
-				ErrDocument, i, maxPageUnpacked>>20, maxPDFUnpacked>>20)
+		n, err := pageCost(p, min(budget, maxPageUnpacked))
+		if err != nil {
+			return "", fmt.Errorf("%w: page %d %w", ErrDocument, i, err)
 		}
 		budget -= n
 		if page := pageLines(p.Content().Text); page != "" {
@@ -98,41 +125,98 @@ func pdfText(body []byte) (text string, err error) {
 	return strings.TrimSpace(b.String()), nil
 }
 
-// Limits on a PDF: the parser holds a page's text runs in memory and has no
-// cap of its own on what a compressed stream unpacks to.
+// Limits on a PDF. The parser has no cap on what a compressed stream
+// unpacks to, holds every glyph of a page as a text run, and parses a
+// font's character map again at every font switch.
 const (
 	maxPDFPages     = 2000
 	maxPageUnpacked = 8 << 20
 	maxPDFUnpacked  = 64 << 20
+	maxPageGlyphs   = 200000
+	maxFontSwitches = 20000
 )
 
-// pageUnpacked is what the streams the parser reads for a page (its content
-// and its fonts' character maps) unpack to, counted up to limit and past
-// it by one: more than limit means the page is over.
-func pageUnpacked(p pdf.Page, limit int64) int64 {
-	vals := []pdf.Value{p.V.Key("Contents")}
+// errTooBig ends a page's measurement early.
+var errTooBig = errors.New("asks for more work than refetch does")
+
+// pageCost measures, before the parser reads a page, the bytes its content
+// and font streams unpack to (at most limit), its glyphs and the character
+// map parsing its font switches cost. It returns the bytes unpacked.
+func pageCost(p pdf.Page, limit int64) (n int64, err error) {
+	contents := p.V.Key("Contents")
+	n = streams(contents, limit)
+	var cmap int64
 	for _, name := range p.Fonts() {
 		f := p.Font(name)
-		vals = append(vals, f.V.Key("ToUnicode"), f.V.Key("Encoding"))
+		size := streams(f.V.Key("ToUnicode"), limit-n) + streams(f.V.Key("Encoding"), limit-n)
+		n, cmap = n+size, max(cmap, size)
 	}
-	var n int64
-	for _, v := range vals {
-		if v.Kind() == pdf.Array {
-			for i := range v.Len() {
-				n += streamLen(v.Index(i), limit-n)
+	if n > limit {
+		return 0, fmt.Errorf("unpacks to more than refetch reads (%d MB a page, %d MB a file)", maxPageUnpacked>>20, maxPDFUnpacked>>20)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok && errors.Is(e, errTooBig) {
+				err = errTooBig
+				return
 			}
-		} else {
-			n += streamLen(v, limit-n)
+			panic(r)
 		}
-		if n > limit {
-			return limit + 1
+	}()
+	glyphs, switches := 0, int64(0)
+	pdf.Interpret(contents, func(stk *pdf.Stack, op string) {
+		var args []pdf.Value
+		for stk.Len() > 0 {
+			args = append(args, stk.Pop())
 		}
-	}
-	return n
+		switch op {
+		case "Tf":
+			switches++
+		case "Tj", "'", `"`, "TJ":
+			glyphs += showLen(args)
+		}
+		if glyphs > maxPageGlyphs || switches > maxFontSwitches || switches*cmap > maxPDFUnpacked {
+			panic(errTooBig)
+		}
+	})
+	return n, nil
 }
 
-// streamLen reads a stream value to its end, up to limit+1 bytes.
-func streamLen(v pdf.Value, limit int64) int64 {
+// showLen counts the bytes a text-showing operator draws: its string, or
+// the strings of its array.
+func showLen(args []pdf.Value) int {
+	total := 0
+	for _, a := range args {
+		switch a.Kind() {
+		case pdf.String:
+			total += len(a.RawString())
+		case pdf.Array:
+			for i := range a.Len() {
+				if e := a.Index(i); e.Kind() == pdf.String {
+					total += len(e.RawString())
+				}
+			}
+		default:
+		}
+	}
+	return total
+}
+
+// streams reads a stream, or an array of them (one level: an array can
+// hold itself), to its end and returns the bytes it unpacks to, counted up
+// to limit and past it by one.
+func streams(v pdf.Value, limit int64) int64 {
+	if v.Kind() == pdf.Array {
+		var n int64
+		for i := 0; i < v.Len() && n <= limit; i++ {
+			n += stream(v.Index(i), limit-n)
+		}
+		return n
+	}
+	return stream(v, limit)
+}
+
+func stream(v pdf.Value, limit int64) int64 {
 	if v.Kind() != pdf.Stream || limit < 0 {
 		return 0
 	}
