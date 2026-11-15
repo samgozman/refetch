@@ -5,14 +5,12 @@
 package fetch
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
-	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -254,78 +252,6 @@ func isTimeout(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
-}
-
-// challengeMarkers appear in bot-protection interstitials (Cloudflare,
-// DataDome, PerimeterX, Imperva, Akamai).
-var challengeMarkers = []string{
-	"challenge-platform", "cf-browser-verification", "cf_chl_", "<title>just a moment...</title>",
-	"attention required! | cloudflare", "captcha-delivery.com", "px-captcha", "_incapsula_resource",
-	"/_sec/cp_challenge", "enable javascript and cookies to continue",
-	"prove your humanity", // Reddit's verification page, also after JavaScript ran
-}
-
-// Challenge reports whether a response is a bot challenge rather than the
-// page: HTTP 503, HTTP 202 (AWS WAF answers a GET with an empty 202 and a
-// challenge script), or a short page carrying a challenge marker.
-func Challenge(status int, body []byte) bool {
-	if status == http.StatusServiceUnavailable || status == http.StatusAccepted {
-		return true
-	}
-	if len(body) > 256<<10 {
-		return false
-	}
-	lower := strings.ToLower(string(body))
-	for _, m := range challengeMarkers {
-		if strings.Contains(lower, m) {
-			return true
-		}
-	}
-	return false
-}
-
-// mountPoint is an empty element a JavaScript framework renders into.
-var mountPoint = regexp.MustCompile(`(?i)<div[^>]+id=["']?(root|app|__next|__nuxt|svelte|main)["']?[^>]*>\s*</div>|<app-root[^>]*>\s*</app-root>`)
-
-// jsNotices are what a page says when it cannot work without JavaScript.
-var jsNotices = []string{
-	"enable javascript", "javascript is required", "requires javascript", "javascript is disabled",
-	"javascript must be enabled", "turn on javascript",
-}
-
-// NeedsJS reports whether an HTML page is a JavaScript-only shell: under
-// about 200 characters of readable text plus an empty mount point or an
-// enable-JavaScript notice, or under 100 characters plus a script (an app
-// shell, or a proof-of-work page that solves a puzzle and resubmits).
-func NeedsJS(body []byte, contentType string) bool {
-	if len(body) > 512<<10 || (contentType != "" && !strings.Contains(contentType, "html")) {
-		return false
-	}
-	text := len([]rune(Text(body, "text/html")))
-	if text >= 200 {
-		return false
-	}
-	if mountPoint.Match(body) || (text < 100 && bytes.Contains(bytes.ToLower(body), []byte("<script"))) {
-		return true
-	}
-	lower := strings.ToLower(string(body))
-	for _, n := range jsNotices {
-		if strings.Contains(lower, n) {
-			return true
-		}
-	}
-	return false
-}
-
-// EmptyRendered reports whether a DOM from headless Chrome has next to no
-// text. Unlike NeedsJS it ignores scripts and mount points, which stay.
-func EmptyRendered(dom []byte) bool {
-	return len([]rune(strings.TrimSpace(Text(dom, "text/html")))) < 20
-}
-
-// Blocked reports an anti-bot refusal: HTTP 403 or 429, or a challenge.
-func Blocked(status int, body []byte) bool {
-	return status == http.StatusForbidden || status == http.StatusTooManyRequests || Challenge(status, body)
 }
 
 // allowed checks the host's robots.txt for the robots agent, cached for an

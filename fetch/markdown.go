@@ -36,9 +36,13 @@ func toMarkdown(body []byte, contentType string, page *url.URL, trim bool) strin
 	if !isHTML(body, contentType) {
 		return string(body)
 	}
+	return htmlMarkdown(body, page, trim, true)
+}
+
+func htmlMarkdown(body []byte, page *url.URL, trim, noscript bool) string {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
-		return Text(body, contentType)
+		return Text(body, "text/html")
 	}
 	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}, drop: map[*html.Node]bool{}}
 	m.markBlocks(doc)
@@ -47,9 +51,45 @@ func toMarkdown(body []byte, contentType string, page *url.URL, trim bool) strin
 	}
 	out := strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
 	if trim && len(m.drop) > 0 && len([]rune(out)) < minTrimmed {
-		return toMarkdown(body, contentType, page, false)
+		return htmlMarkdown(body, page, false, noscript)
+	}
+	if noscript {
+		if alt := noscriptMarkdown(doc, page, trim); len([]rune(alt)) > 2*len([]rune(out)) {
+			if title := pageTitle(doc); title != "" && !strings.HasPrefix(alt, title) {
+				alt = title + "\n\n" + alt
+			}
+			return alt
+		}
 	}
 	return out
+}
+
+// pageTitle is the <title> of a parsed page, on one line.
+func pageTitle(doc *html.Node) string {
+	for n := range doc.Descendants() {
+		if n.DataAtom == atom.Title && n.Type == html.ElementNode {
+			return oneLineText(textOf(n))
+		}
+	}
+	return ""
+}
+
+// noscriptMarkdown is the Markdown of what a page shows browsers without
+// JavaScript, which some apps fill with the whole page (Discourse forums
+// do, for every topic and list) while the visible page holds little more
+// than a header until scripts run; used when it is over twice the visible
+// page. The parser keeps a <noscript>'s content as raw text.
+func noscriptMarkdown(doc *html.Node, page *url.URL, trim bool) string {
+	var b strings.Builder
+	for n := range doc.Descendants() {
+		if n.Type == html.ElementNode && n.DataAtom == atom.Noscript && n.FirstChild != nil && n.FirstChild.Type == html.TextNode {
+			b.WriteString(n.FirstChild.Data)
+		}
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return htmlMarkdown([]byte(b.String()), page, trim, false)
 }
 
 // maxLinkLen drops the target of a longer link, which costs more of

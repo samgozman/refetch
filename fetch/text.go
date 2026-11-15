@@ -38,42 +38,60 @@ func NotText(contentType string, body []byte) string {
 var blankLines = regexp.MustCompile(`\n\s*\n+`)
 
 // Text returns readable text: HTML without scripts, styles and tags;
-// other types as is.
+// other types as is. When a page's <noscript> elements, where some apps
+// put the whole page for browsers without JavaScript, hold over twice the
+// text it shows, their text is added.
 func Text(body []byte, contentType string) string {
 	if !isHTML(body, contentType) {
 		return string(body)
 	}
-	var b strings.Builder
+	var shown, noscript strings.Builder
 	z := html.NewTokenizer(bytes.NewReader(body))
-	skip := 0
+	skip, inNoscript := 0, 0
 	for {
 		switch z.Next() {
 		case html.ErrorToken:
-			return strings.TrimSpace(blankLines.ReplaceAllString(b.String(), "\n\n"))
+			text := tidyText(shown.String())
+			if alt := tidyText(noscript.String()); len([]rune(alt)) >= minTrimmed && len([]rune(alt)) > 2*len([]rune(text)) {
+				return strings.TrimSpace(text + "\n\n" + alt)
+			}
+			return text
 		case html.StartTagToken:
 			name, _ := z.TagName()
 			switch string(name) {
-			case "script", "style", "noscript", "svg", "template":
+			case "script", "style", "svg", "template":
 				skip++
+			case "noscript":
+				inNoscript++
 			case "p", "div", "li", "br", "h1", "h2", "h3", "h4", "tr", "section", "article":
-				b.WriteString("\n")
+				shown.WriteString("\n")
+				noscript.WriteString("\n")
 			}
 		case html.EndTagToken:
 			name, _ := z.TagName()
 			switch string(name) {
-			case "script", "style", "noscript", "svg", "template":
+			case "script", "style", "svg", "template":
 				skip = max(0, skip-1)
+			case "noscript":
+				inNoscript = max(0, inNoscript-1)
 			}
 		case html.TextToken:
-			if skip == 0 {
-				if t := strings.Join(strings.Fields(string(z.Text())), " "); t != "" {
-					b.WriteString(t + " ")
+			if skip > 0 {
+				continue
+			}
+			if t := strings.Join(strings.Fields(string(z.Text())), " "); t != "" {
+				if inNoscript > 0 {
+					noscript.WriteString(t + " ")
+				} else {
+					shown.WriteString(t + " ")
 				}
 			}
 		case html.SelfClosingTagToken, html.CommentToken, html.DoctypeToken:
 		}
 	}
 }
+
+func tidyText(s string) string { return strings.TrimSpace(blankLines.ReplaceAllString(s, "\n\n")) }
 
 // isHTML reports a body to read as HTML: its type says so, or it starts
 // with a tag and is not Markdown, such as a document's text that opens
