@@ -25,12 +25,14 @@ injection can choose it. These guarantees are security boundaries:
 - **Hooks never block.** refetch's hooks never deny, rewrite or block a tool
   call, and always exit 0.
 - **Files are read within limits.** PDFs and Word, Excel and PowerPoint
-  files are parsed in process, in Go, with no outside tools. A file may be at
-  most 32 MB; what its compressed parts unpack to, a PDF page's glyphs and
-  font switches, and a workbook's text are capped before or while they are
-  read, and a PDF gets 20 seconds. Office files are zips of XML that refetch
-  reads with Go's own zip and XML packages; PDFs go through
-  `github.com/ledongthuc/pdf`.
+  files are parsed in Go, with no outside tools. A file may be at most
+  32 MB; what its compressed parts unpack to, a PDF's page tree, a PDF
+  page's glyphs and font switches, and a workbook's cells and text are
+  capped before or while they are read. Office files are zips of XML that
+  refetch reads with Go's own zip and XML packages, in process. PDFs go
+  through `github.com/ledongthuc/pdf` in a child process of refetch's own
+  binary (`refetch read-pdf`), killed after 20 seconds, so a file that
+  crashes the parser ends only that child.
 - **Headless Chrome is driven over a pipe.** refetch speaks the DevTools
   protocol over `--remote-debugging-pipe`, so Chrome opens no debugging port
   that another process could attach to.

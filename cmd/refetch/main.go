@@ -26,6 +26,10 @@ import (
 // version is set at release time with -ldflags "-X main.version=...".
 var version = "dev"
 
+// readPDFCmd is the hidden subcommand that reads one PDF from stdin for
+// fetch.IsolatePDF.
+const readPDFCmd = "read-pdf"
+
 const usage = `refetch reads web pages that WebFetch could not.
 
 Usage:
@@ -42,6 +46,9 @@ Data:     %s
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if exe, err := os.Executable(); err == nil { // a PDF that crashes the parser ends a child, not the server
+		fetch.IsolatePDF(exe, readPDFCmd)
+	}
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
@@ -61,6 +68,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "hook":
 		runHook(ctx, args, os.Stdin, stdout, stderr)
 		return 0
+	case readPDFCmd:
+		return fetch.ServePDF(ctx, os.Stdin, stdout, stderr)
 	case "doctor":
 		if err := runDoctor(ctx, stdout); err != nil {
 			_, _ = fmt.Fprintln(stderr, "refetch:", err)

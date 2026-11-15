@@ -41,7 +41,7 @@ func isDocType(mt string) bool { return slices.Contains(docTypes, mt) }
 func Document(ctx context.Context, body []byte) (md string, ok bool, err error) {
 	switch {
 	case bytes.HasPrefix(body, pdfMagic):
-		md, err = pdfWithin(ctx, body)
+		md, err = readPDF(ctx, body)
 		return md, true, err
 	case bytes.HasPrefix(body, zipMagic):
 		zr, zerr := zip.NewReader(bytes.NewReader(body), int64(len(body)))

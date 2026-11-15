@@ -33,7 +33,8 @@ fetcher and the stats report. The repo root is also the Claude Code plugin.
 - `store/`: SQLite event log (`tool_calls`, `attempts`, `daily` roll-up)
 - `stats/`: the funnel and its text report
 - `config/`: defaults, `config.toml`, `REFETCH_*` env vars
-- `cmd/refetch/`: subcommands (`mcp`, `hook`, `get`, `stats`, `doctor`)
+- `cmd/refetch/`: subcommands (`mcp`, `hook`, `get`, `stats`, `doctor`, and
+  the hidden `read-pdf` child that `fetch.IsolatePDF` runs)
 - `.claude-plugin/`, `hooks/hooks.json`, `skills/`: the plugin
 - `bin/refetch`: the plugin's shell shim, not a build output. Builds go to
   `build/`.
