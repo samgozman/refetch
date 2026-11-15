@@ -21,9 +21,11 @@ import (
 // chromeMajor is the Chrome version the Chrome-like client is: its TLS
 // profile, User-Agent and client hints all name it, as a mismatch between
 // them is what bot managers look for.
-const chromeMajor = 152
+// Chrome 150, not tls-client's newer 152: Indeed's Cloudflare refused the
+// 152 profile with a 403 and served the 150 one (Nov 2026).
+const chromeMajor = 150
 
-var chromeProfile = profiles.Chrome_152
+var chromeProfile = profiles.Chrome_150
 
 // chromeHeaders are Chrome's own navigation headers, values and order, as
 // a real Chrome sends them for an address typed in its bar (checked against
