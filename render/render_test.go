@@ -2,7 +2,9 @@ package render
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
+	"html"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +41,8 @@ func site(t *testing.T) *httptest.Server {
 		case "/tracked":
 			_, _ = w.Write([]byte(`<html><body><h1>Secret word: plum</h1><p id="ua"></p><script src="/tracker.js"></script>
 				<script>document.getElementById("ua").textContent = "webdriver=" + navigator.webdriver</script></body></html>`))
+		case "/fingerprint":
+			_, _ = w.Write([]byte(fingerprintPage))
 		case "/tracker.js":
 			tracked.Add(1)
 		case "/hang":
@@ -50,6 +54,24 @@ func site(t *testing.T) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// fingerprintPage writes what a bot-detection script would read, and
+// marks the body if anything calls innerText or outerHTML from the page's
+// own world, as a script driving the page there would.
+const fingerprintPage = `<html><body><h1>Fingerprint</h1><p id="fp">pending</p><script>
+for (const [proto, prop] of [[HTMLElement.prototype, "innerText"], [Element.prototype, "outerHTML"]]) {
+	const d = Object.getOwnPropertyDescriptor(proto, prop);
+	Object.defineProperty(proto, prop, {get() { document.body.setAttribute("data-hooked", prop); return d.get.call(this); }, configurable: true});
+}
+(async () => {
+	const h = await navigator.userAgentData.getHighEntropyValues(["platformVersion", "fullVersionList"]);
+	const w = new Worker(URL.createObjectURL(new Blob(["postMessage(navigator.userAgent)"])));
+	const worker = await new Promise(res => { w.onmessage = e => res(e.data); setTimeout(() => res("no answer"), 3000); });
+	document.getElementById("fp").textContent = JSON.stringify({ua: navigator.userAgent, worker,
+		brands: navigator.userAgentData.brands.map(b => b.brand).join("|"), pv: h.platformVersion, fvl: h.fullVersionList.length,
+		screen: screen.width + "x" + screen.height, webdriver: navigator.webdriver}) + " end of fingerprint, padded to be read as a page";
+})();
+</script></body></html>`
 
 // tracked counts requests for /tracker.js, which a render must block.
 var tracked atomic.Int32
@@ -178,6 +200,44 @@ func TestRenderRefusesLocalURLs(t *testing.T) {
 	}
 }
 
+func TestRenderFingerprint(t *testing.T) {
+	chrome := chromeOrSkip(t)
+	srv := site(t)
+	r := &Renderer{Chrome: chrome, Timeout: 10 * time.Second, dial: loopbackDial}
+	p, err := r.Render(t.Context(), srv.URL+"/fingerprint")
+	dom := string(p.DOM)
+	start := strings.Index(dom, `{"ua"`)
+	end := strings.Index(dom, " end of fingerprint")
+	if err != nil || start < 0 || end < start {
+		t.Fatalf("err %v, dom %.500q", err, dom)
+	}
+	var fp struct {
+		UA        string `json:"ua"`
+		Worker    string `json:"worker"`
+		Brands    string `json:"brands"`
+		PV        string `json:"pv"`
+		Screen    string `json:"screen"`
+		FVL       int    `json:"fvl"`
+		Webdriver bool   `json:"webdriver"`
+	}
+	if err := json.Unmarshal([]byte(html.UnescapeString(dom[start:end])), &fp); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(fp.UA, "Headless") || strings.Contains(fp.Worker, "Headless") || !strings.Contains(fp.Worker, "Chrome/") {
+		t.Errorf("user agents: page %q, worker %q", fp.UA, fp.Worker)
+	}
+	if strings.Contains(fp.Brands, "Headless") || !strings.Contains(fp.Brands, "Chromium") || fp.FVL == 0 || fp.Webdriver {
+		t.Errorf("client hints: %+v", fp)
+	}
+	if fp.Screen == "800x600" {
+		t.Errorf("headless Chrome's own screen size: %s", fp.Screen)
+	}
+	if i := strings.Index(dom, `data-hooked="`); i >= 0 {
+		t.Errorf("a page script saw refetch read the page: %.100q", dom[i:])
+	}
+	t.Logf("%+v", fp)
+}
+
 func TestNoChrome(t *testing.T) {
 	r := &Renderer{Chrome: filepath.Join(t.TempDir(), "missing")}
 	if _, err := r.Render(t.Context(), "https://example.com/"); err == nil {
@@ -207,5 +267,13 @@ func TestNoUsableSandbox(t *testing.T) {
 	r := &Renderer{Chrome: chrome, Timeout: 5 * time.Second, dial: loopbackDial}
 	if _, err := r.Render(t.Context(), "https://example.com/"); !errors.Is(err, ErrSandbox) {
 		t.Errorf("Chrome without a sandbox: %v", err)
+	}
+}
+
+func TestThreeParts(t *testing.T) {
+	for in, want := range map[string]string{"15.6": "15.6.0", "27.2.0": "27.2.0", "6.8.0-45-generic": "6.8.0", "6.1.12.4": "6.1.12", "": "", "x": ""} {
+		if got := threeParts(in); got != want {
+			t.Errorf("threeParts(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

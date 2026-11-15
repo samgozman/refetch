@@ -28,6 +28,8 @@ type cdp struct {
 	events  chan message
 	done    chan struct{} // closed when the pipe from Chrome ends
 	err     error         // why it ended, set before done closes
+
+	attached func(params jsontext.Value) // called, in its own goroutine, for each Target.attachedToTarget
 }
 
 type message struct {
@@ -51,11 +53,12 @@ type incoming struct {
 // a page's stream of others cannot crowd them out.
 var watched = map[string]bool{"Page.loadEventFired": true, "Inspector.targetCrashed": true, "Target.targetCrashed": true}
 
-func newCDP(w io.Writer, r io.Reader) *cdp {
-	c := &cdp{w: w, pending: map[int64]chan message{}, events: make(chan message, 64), done: make(chan struct{})}
-	go c.read(r)
-	return c
+// newCDP is a client writing to w; start begins reading Chrome's side.
+func newCDP(w io.Writer) *cdp {
+	return &cdp{w: w, pending: map[int64]chan message{}, events: make(chan message, 64), done: make(chan struct{})}
 }
+
+func (c *cdp) start(r io.Reader) { go c.read(r) }
 
 func (c *cdp) read(r io.Reader) {
 	br := bufio.NewReaderSize(r, 64<<10)
@@ -71,6 +74,9 @@ func (c *cdp) read(r io.Reader) {
 		}
 		in.message.Params = in.Params
 		if in.ID == 0 {
+			if in.Method == "Target.attachedToTarget" && c.attached != nil {
+				go c.attached(in.Params)
+			}
 			if watched[in.Method] {
 				select {
 				case c.events <- in.message:

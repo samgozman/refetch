@@ -143,8 +143,12 @@ show how often each path was taken. Step by step:
 4. For a challenge or JavaScript-only page, it runs your installed Chrome or
    Chromium headless, for 15 s at most. It reads the page once it has loaded
    and its text stops changing, or, for a page that never finishes loading,
-   whatever it shows at the deadline. Ad and analytics hosts are blocked and
-   images are not downloaded. A challenge counts even when it comes as a 403,
+   whatever it shows at the deadline. It scrolls a few screens first, for
+   content that loads as it comes into view. Ad and analytics hosts are
+   blocked and images are not downloaded. Chrome shows pages the user agent,
+   client hints and screen of a regular window of the installed version, in
+   every frame and worker, and reads the page from an isolated script world
+   that the page's own scripts cannot watch. A challenge counts even when it comes as a 403,
    as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or 429 skips
    this step, and so does a machine without Chrome. A host whose last two
    fetches in the past week only headless Chrome could read goes straight to

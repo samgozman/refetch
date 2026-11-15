@@ -46,24 +46,33 @@ var chromeHeaders = fhttp.Header{
 		"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest", "accept-encoding", "accept-language", "priority"},
 }
 
-// secCHUA is the Sec-CH-UA header Chrome of a major version sends. Chromium
-// derives its GREASE brand, the brand's version and the order of the three
-// brands from the major version, so a value from another version gives a
-// client away.
+// secCHUA is the Sec-CH-UA header Chrome of a major version sends.
 func secCHUA(major int) string {
+	var parts []string
+	for _, b := range ChromeBrands(major) {
+		parts = append(parts, `"`+b[0]+`";v="`+b[1]+`"`)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// ChromeBrands are the brands and major versions Chrome of a major version
+// names in its client hints, in its order. Chromium derives the GREASE
+// brand, the brand's version and the order of the three from the major
+// version, so a list from another version gives a client away.
+func ChromeBrands(major int) [3][2]string {
 	chars := []string{" ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"}
 	orders := [6][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
 	v := strconv.Itoa(major)
-	brands := [3]string{
-		`"Not` + chars[major%len(chars)] + "A" + chars[(major+1)%len(chars)] + `Brand";v="` + []string{"8", "99", "24"}[major%3] + `"`,
-		`"Chromium";v="` + v + `"`,
-		`"Google Chrome";v="` + v + `"`,
+	brands := [3][2]string{
+		{"Not" + chars[major%len(chars)] + "A" + chars[(major+1)%len(chars)] + "Brand", []string{"8", "99", "24"}[major%3]},
+		{"Chromium", v},
+		{"Google Chrome", v},
 	}
-	var out [3]string
+	var out [3][2]string
 	for i, at := range orders[major%6] {
 		out[at] = brands[i]
 	}
-	return strings.Join(out[:], ", ")
+	return out
 }
 
 // reply is one HTTP response, cut at MaxBytes; mitigated is Cloudflare's

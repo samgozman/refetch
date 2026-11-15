@@ -90,37 +90,15 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) (Page, error) {
 	}
 	defer func() { _ = os.RemoveAll(profile) }()
 
-	// Chrome reads commands from fd 3 and writes replies to fd 4.
-	cmdR, cmdW, err := os.Pipe()
+	cmd, cmdW, replyR, stderr, err := startChrome(ctx, chrome, profile, px.addr, asRoot)
 	if err != nil {
-		return Page{}, err
-	}
-	replyR, replyW, err := os.Pipe()
-	if err != nil {
-		_, _ = cmdR.Close(), cmdW.Close()
 		return Page{}, err
 	}
 	defer func() { _, _ = cmdW.Close(), replyR.Close() }()
-
-	cmd := exec.CommandContext(ctx, chrome, chromeArgs(ctx, chrome, profile, px.addr)...) //nolint:gosec // the user's own Chrome, found by FindChrome or REFETCH_CHROME
-	cmd.ExtraFiles = []*os.File{cmdR, replyW}
-	cmd.SysProcAttr = sysProcAttr()
-	if asRoot {
-		if err := runAsNobody(cmd, profile); err != nil {
-			_, _ = cmdR.Close(), replyW.Close()
-			return Page{}, err
-		}
-	}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // Chrome's helpers too
-	cmd.WaitDelay = 2 * time.Second
-	stderr := &capped{max: 64 << 10}
-	cmd.Stderr = stderr
-	err = cmd.Start()
-	_, _ = cmdR.Close(), replyW.Close()
-	if err != nil {
-		return Page{}, fmt.Errorf("headless Chrome failed: %w", err)
-	}
-	page, err := drive(ctx, newCDP(cmdW, replyR), rawURL, chrome)
+	t := &tab{c: newCDP(cmdW)}
+	t.c.attached = t.attached
+	t.c.start(replyR)
+	page, err := t.drive(ctx, rawURL)
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // the browser and helpers that would outlive it
 	_ = cmd.Wait()
 	switch {
@@ -132,6 +110,42 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) (Page, error) {
 		return Page{}, ErrSandbox
 	}
 	return Page{}, fmt.Errorf("headless Chrome failed: %w", err)
+}
+
+// startChrome starts Chrome on profile behind the proxy, and returns the
+// pipe ends refetch writes commands to and reads replies from: Chrome
+// reads fd 3 and writes fd 4.
+func startChrome(ctx context.Context, chrome, profile, proxy string, asRoot bool) (cmd *exec.Cmd, cmdW, replyR *os.File, stderr *capped, err error) {
+	cmdR, cmdW, err := os.Pipe()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	replyR, replyW, err := os.Pipe()
+	if err != nil {
+		_, _ = cmdR.Close(), cmdW.Close()
+		return nil, nil, nil, nil, err
+	}
+	defer func() { _, _ = cmdR.Close(), replyW.Close() }() // Chrome's ends, which it holds once started
+	fail := func(err error) (*exec.Cmd, *os.File, *os.File, *capped, error) {
+		_, _ = cmdW.Close(), replyR.Close()
+		return nil, nil, nil, nil, err
+	}
+	cmd = exec.CommandContext(ctx, chrome, chromeArgs(profile, proxy)...) //nolint:gosec // the user's own Chrome, found by FindChrome or REFETCH_CHROME
+	cmd.ExtraFiles = []*os.File{cmdR, replyW}
+	cmd.SysProcAttr = sysProcAttr()
+	if asRoot {
+		if err := runAsNobody(cmd, profile); err != nil {
+			return fail(err)
+		}
+	}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // Chrome's helpers too
+	cmd.WaitDelay = 2 * time.Second
+	stderr = &capped{max: 64 << 10}
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		return fail(fmt.Errorf("headless Chrome failed: %w", err))
+	}
+	return cmd, cmdW, replyR, stderr, nil
 }
 
 // profilePrefix names the throwaway profiles, so a later run can remove the
@@ -174,18 +188,16 @@ func sweepProfiles(age time.Duration) {
 	}
 }
 
-func chromeArgs(ctx context.Context, chrome, profile, proxy string) []string {
+func chromeArgs(profile, proxy string) []string {
 	args := []string{
-		"--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-		"--disable-extensions", "--disable-sync", "--disable-background-networking",
-		"--disable-component-update", "--disable-default-apps", "--mute-audio", "--hide-scrollbars",
-		"--user-data-dir=" + profile, "--window-size=1280,800",
+		"--headless", "--no-first-run", "--no-default-browser-check", "--disable-sync",
+		"--disable-background-networking", "--mute-audio", "--hide-scrollbars",
+		"--user-data-dir=" + profile, "--window-size=1280,800", "--screen-info=" + screenInfo(), "--accept-lang=en-US,en",
 		// Every request through the proxy, loopback included (Chrome bypasses
 		// a proxy for loopback unless told not to), and no QUIC or WebRTC
 		// UDP, which would not go through it.
 		"--proxy-server=http://" + proxy, "--proxy-bypass-list=<-loopback>", "--disable-quic",
 		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-		"--user-agent=" + userAgent(ctx, chrome),
 		// navigator.webdriver stays false, as in a regular window; images
 		// are never read, only waited for.
 		"--disable-blink-features=AutomationControlled", "--blink-settings=imagesEnabled=false",
@@ -195,6 +207,16 @@ func chromeArgs(ctx context.Context, chrome, profile, proxy string) []string {
 		args = append(args, "--ignore-certificate-errors")
 	}
 	return args
+}
+
+// screenInfo is a common laptop screen, in device pixels: headless Chrome's
+// own is 800x600 with no menu bar, smaller than its window, which no real
+// screen is.
+func screenInfo() string {
+	if runtime.GOOS == "darwin" {
+		return "{2880x1800 devicePixelRatio=2 workAreaTop=50}"
+	}
+	return "{1920x1080 workAreaBottom=48}"
 }
 
 // capped keeps the first max bytes written and drops the rest.
@@ -264,18 +286,4 @@ func Name(ctx context.Context, chrome string) string {
 		return name + " " + m[1]
 	}
 	return name
-}
-
-// userAgent is a regular Chrome User-Agent for the installed version.
-// Headless Chrome's own says "HeadlessChrome", which many sites refuse.
-func userAgent(ctx context.Context, chrome string) string {
-	major := "150"
-	if m := chromeVersion.FindStringSubmatch(Version(ctx, chrome)); m != nil {
-		major = m[1]
-	}
-	platform := "Macintosh; Intel Mac OS X 10_15_7"
-	if runtime.GOOS == "linux" {
-		platform = "X11; Linux x86_64"
-	}
-	return "Mozilla/5.0 (" + platform + ") AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36"
 }
