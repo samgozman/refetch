@@ -23,7 +23,7 @@ import (
 const (
 	ClientChromeLike  = "chrome_like"
 	ClientPlain       = "plain"        // the plain client as the first step (Impersonate off or fallback)
-	ClientPlainBackup = "plain_backup" // the plain client after the Chrome-like client errored
+	ClientPlainBackup = "plain_backup" // the plain client after the Chrome-like client errored or was refused
 	ClientStructured  = "structured"   // a JavaScript-only page's structured data, when nothing else read it
 )
 
@@ -40,7 +40,7 @@ const (
 
 // Impersonation modes.
 const (
-	ImpersonateAlways   = "always"   // Chrome-like first, plain backup on its TLS or protocol errors (default)
+	ImpersonateAlways   = "always"   // Chrome-like first, plain backup on its TLS or protocol errors or a refusal (default)
 	ImpersonateFallback = "fallback" // plain first, Chrome-like when the plain client is refused or challenged
 	ImpersonateOff      = "off"      // plain client only
 )
@@ -125,7 +125,12 @@ func (f *Fetcher) Get(ctx context.Context, rawURL string) (Page, error) {
 		}
 	default:
 		err = f.try(ctx, &p, ClientChromeLike, rawURL)
-		if err != nil && p.Last.Status == 0 && backupWorthy(err) && ctx.Err() == nil {
+		// The plain client backs up the Chrome-like one's own TLS or protocol
+		// errors, and a plain refusal: some sites refuse a browser look-alike
+		// from an address and serve an honest client (Discourse forums of
+		// OpenAI and NVIDIA did, Nov 2026).
+		retry := p.Last.Status == 0 && backupWorthy(err) || p.Last.Outcome == OutcomeRefused
+		if err != nil && retry && ctx.Err() == nil {
 			err = f.try(ctx, &p, ClientPlainBackup, rawURL)
 		}
 	}

@@ -138,8 +138,11 @@ show how often each path was taken. Step by step:
 2. The hook adds a note next to the failed result telling Claude to call
    `fetch_page` with that URL.
 3. `fetch_page` reads the page with a Go HTTP client whose TLS handshake
-   looks like Chrome's (about 1 s, no JavaScript). A plain Go client is only
-   its backup for the Chrome-like client's own TLS or protocol errors.
+   looks like Chrome's (about 1 s, no JavaScript). A plain Go client, under
+   its own `refetch` name, is the backup for the Chrome-like client's own
+   TLS or protocol errors and for a plain 403 or 429: some sites refuse a
+   browser look-alike from an address that sends them many requests, yet
+   serve an honest client.
 4. For a challenge or JavaScript-only page, it runs your installed Chrome or
    Chromium headless, for 15 s at most. It reads the page once it has loaded
    and its text stops changing, or, for a page that never finishes loading,
@@ -151,12 +154,12 @@ show how often each path was taken. Step by step:
    that the page's own scripts cannot watch. A captcha wall (DataDome,
    PerimeterX, Reddit's "prove your humanity") gets one more try in a new
    tab whose request headers are ordered differently, as sites disagree on
-   which order they let through; refetch never solves a captcha. A challenge counts even when it comes as a 403,
-   as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or 429 skips
-   this step, and so does a machine without Chrome. A host whose last two
-   fetches in the past week only headless Chrome could read goes straight to
-   it (this needs `stats` on, as it reads the stats database); the HTTP
-   clients still run if it fails.
+   which order they let through; refetch never solves a captcha. A challenge
+   counts even when it comes as a 403, as Cloudflare's does (`cf-mitigated:
+   challenge`). A plain 403 or 429 skips this step, and so does a machine
+   without Chrome. A host whose last two fetches in the past week only
+   headless Chrome could read goes straight to it (this needs `stats` on, as
+   it reads the stats database); the HTTP clients still run if it fails.
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 

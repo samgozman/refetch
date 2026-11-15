@@ -65,7 +65,8 @@ func TestModes(t *testing.T) {
 		wantOutcomes  []string
 	}{
 		"always, ok":                   {"", nil, good, "", []string{ClientChromeLike}, []string{OutcomeOK}},
-		"always, refused":              {"", good, refused, "refused (HTTP 403, chrome_like client)", []string{ClientChromeLike}, []string{OutcomeRefused}},
+		"always, refused to backup":    {"", good, refused, "", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeRefused, OutcomeOK}},
+		"always, refused by both":      {"", refused, refused, "refused (HTTP 403, plain_backup client)", []string{ClientChromeLike, ClientPlainBackup}, []string{OutcomeRefused, OutcomeRefused}},
 		"always, challenge":            {"", good, challenge, "challenge page", []string{ClientChromeLike}, []string{OutcomeChallenge}},
 		"always, 403 challenge page":   {"", good, cf403, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
 		"always, cf-mitigated":         {"", good, cfHeader, "challenge page (HTTP 403", []string{ClientChromeLike}, []string{OutcomeChallenge}},
