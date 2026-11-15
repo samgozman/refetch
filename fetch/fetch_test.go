@@ -7,10 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	fhttp "github.com/bogdanfinn/fhttp"
 )
 
 type page struct {
@@ -236,5 +240,34 @@ func TestOwnAddressRefused(t *testing.T) {
 	}
 	if err := publicOnly("tcp", "93.184.216.35:443", nil); err != nil {
 		t.Errorf("a neighbour on the same network is public: %v", err)
+	}
+}
+
+func TestChromeHeaders(t *testing.T) {
+	cases := map[int]string{
+		157: `"Not-A.Brand";v="99", "Google Chrome";v="157", "Chromium";v="157"`, // captured from Chrome 157
+		150: `"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"`,
+		152: `"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"`,
+	}
+	for major, want := range cases {
+		if got := secCHUA(major); got != want {
+			t.Errorf("secCHUA(%d) = %s, want %s", major, got, want)
+		}
+	}
+	v := strconv.Itoa(chromeMajor)
+	if !strings.Contains(chromeProfile.GetClientHelloStr(), v) || !strings.Contains(chromeHeaders["user-agent"][0], "Chrome/"+v+".") ||
+		chromeHeaders["sec-ch-ua"][0] != secCHUA(chromeMajor) {
+		t.Errorf("the TLS profile %s, User-Agent and client hints must name Chrome %s", chromeProfile.GetClientHelloStr(), v)
+	}
+	order := chromeHeaders[fhttp.HeaderOrderKey]
+	for name := range chromeHeaders {
+		if name != fhttp.HeaderOrderKey && !slices.Contains(order, name) {
+			t.Errorf("%s is sent but has no place in the order", name)
+		}
+	}
+	for _, name := range order {
+		if len(chromeHeaders[name]) != 1 || chromeHeaders[name][0] == "" {
+			t.Errorf("%s is in the order but never sent", name)
+		}
 	}
 }

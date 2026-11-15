@@ -9,6 +9,8 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -16,17 +18,52 @@ import (
 	"github.com/bogdanfinn/tls-client/profiles"
 )
 
-// Chrome's own header values and order; a Chrome TLS handshake with Go's
-// default headers is easy to spot, so they travel together.
+// chromeMajor is the Chrome version the Chrome-like client is: its TLS
+// profile, User-Agent and client hints all name it, as a mismatch between
+// them is what bot managers look for.
+const chromeMajor = 152
+
+var chromeProfile = profiles.Chrome_152
+
+// chromeHeaders are Chrome's own navigation headers, values and order, as
+// a real Chrome sends them for an address typed in its bar (checked against
+// Chrome 157; image/jxl joined Accept in Chrome 155).
 var chromeHeaders = fhttp.Header{
-	"sec-ch-ua":          {`"Google Chrome";v="150", "Chromium";v="150", "Not?A_Brand";v="24"`},
-	"sec-ch-ua-mobile":   {"?0"},
-	"sec-ch-ua-platform": {`"macOS"`},
-	"user-agent":         {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"},
-	"accept":             {"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"},
-	"accept-encoding":    {"gzip, deflate, br, zstd"},
-	"accept-language":    {"en-US,en;q=0.9"},
-	fhttp.HeaderOrderKey: {"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "upgrade-insecure-requests", "user-agent", "accept", "accept-encoding", "accept-language"},
+	"sec-ch-ua":                 {secCHUA(chromeMajor)},
+	"sec-ch-ua-mobile":          {"?0"},
+	"sec-ch-ua-platform":        {`"macOS"`},
+	"upgrade-insecure-requests": {"1"},
+	"user-agent":                {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + strconv.Itoa(chromeMajor) + ".0.0.0 Safari/537.36"},
+	"accept":                    {"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"},
+	"sec-fetch-site":            {"none"},
+	"sec-fetch-mode":            {"navigate"},
+	"sec-fetch-user":            {"?1"},
+	"sec-fetch-dest":            {"document"},
+	"accept-encoding":           {"gzip, deflate, br, zstd"},
+	"accept-language":           {"en-US,en;q=0.9"},
+	"priority":                  {"u=0, i"},
+	fhttp.HeaderOrderKey: {"sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "upgrade-insecure-requests", "user-agent", "accept",
+		"sec-fetch-site", "sec-fetch-mode", "sec-fetch-user", "sec-fetch-dest", "accept-encoding", "accept-language", "priority"},
+}
+
+// secCHUA is the Sec-CH-UA header Chrome of a major version sends. Chromium
+// derives its GREASE brand, the brand's version and the order of the three
+// brands from the major version, so a value from another version gives a
+// client away.
+func secCHUA(major int) string {
+	chars := []string{" ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"}
+	orders := [6][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	v := strconv.Itoa(major)
+	brands := [3]string{
+		`"Not` + chars[major%len(chars)] + "A" + chars[(major+1)%len(chars)] + `Brand";v="` + []string{"8", "99", "24"}[major%3] + `"`,
+		`"Chromium";v="` + v + `"`,
+		`"Google Chrome";v="` + v + `"`,
+	}
+	var out [3]string
+	for i, at := range orders[major%6] {
+		out[at] = brands[i]
+	}
+	return strings.Join(out[:], ", ")
 }
 
 // reply is one HTTP response, cut at MaxBytes; mitigated is Cloudflare's
@@ -37,7 +74,8 @@ type reply struct {
 	contentType, mitigated, url string
 }
 
-// chromeGet fetches with a Chrome 150 TLS and HTTP/2 fingerprint. It shares
+// chromeGet fetches with a Chrome TLS and HTTP/2 fingerprint, extensions
+// shuffled per connection as Chrome does. It shares
 // the public-only dialer (and through it any proxy UseProxy set) and the
 // redirect rules, never uses HTTP/3 (QUIC would bypass the dialer), and keeps
 // no cookies between fetches.
@@ -45,7 +83,8 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	opts := []tlsclient.HttpClientOption{
-		tlsclient.WithClientProfile(profiles.Chrome_150),
+		tlsclient.WithClientProfile(chromeProfile),
+		tlsclient.WithRandomTLSExtensionOrder(),
 		tlsclient.WithTimeoutSeconds(int(timeout.Seconds())),
 		tlsclient.WithDialContext(DialContext),
 		tlsclient.WithDisableHttp3(),
