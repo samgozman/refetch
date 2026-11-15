@@ -166,7 +166,8 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	}
 	f.record(p, &a)
 	if err == nil {
-		p.Body, p.ContentType, p.URL = body, ct, r.url
+		p.Body, p.ContentType = toUTF8(body, ct)
+		p.URL = r.url
 	}
 	return err
 }
