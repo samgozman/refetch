@@ -13,10 +13,26 @@ import (
 )
 
 // Markdown returns an HTML page as Markdown: headings, lists, links, tables
-// and code blocks kept; scripts, styles and hidden elements dropped. Links
-// resolve against page (a <base href> wins); only http, https and mailto
-// links keep their target. Other types come back as Text returns them.
+// and code blocks kept; scripts, styles, hidden elements and the site's
+// navigation, banners, footers, sidebars and cookie notices dropped. When
+// that leaves next to nothing, the page was not laid out the way the
+// trimming expects, and the whole page comes back. Links resolve against
+// page (a <base href> wins); only http, https and mailto links keep their
+// target. Other types come back as Text returns them.
 func Markdown(body []byte, contentType string, page *url.URL) string {
+	return toMarkdown(body, contentType, page, true)
+}
+
+// FullMarkdown is Markdown with the site's navigation, footers and
+// sidebars kept.
+func FullMarkdown(body []byte, contentType string, page *url.URL) string {
+	return toMarkdown(body, contentType, page, false)
+}
+
+// minTrimmed is the shortest trimmed page kept over the whole one.
+const minTrimmed = 200
+
+func toMarkdown(body []byte, contentType string, page *url.URL, trim bool) string {
 	if !isHTML(body, contentType) {
 		return string(body)
 	}
@@ -24,9 +40,16 @@ func Markdown(body []byte, contentType string, page *url.URL) string {
 	if err != nil {
 		return Text(body, contentType)
 	}
-	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}}
+	m := &markdown{base: baseOf(doc, page), hasBlock: map[*html.Node]bool{}, drop: map[*html.Node]bool{}}
 	m.markBlocks(doc)
-	return strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
+	if trim {
+		m.markBoilerplate(doc, false)
+	}
+	out := strings.TrimSpace(m.blocks(doc, 0, "\n\n"))
+	if trim && len(m.drop) > 0 && len([]rune(out)) < minTrimmed {
+		return toMarkdown(body, contentType, page, false)
+	}
+	return out
 }
 
 // maxLinkLen drops the target of a longer link, which costs more of
@@ -70,6 +93,7 @@ var trackingParams = []string{"fbclid", "gclid", "dclid", "msclkid", "yclid", "i
 type markdown struct {
 	base     *url.URL
 	hasBlock map[*html.Node]bool // elements with a block inside
+	drop     map[*html.Node]bool // the site's own furniture, left out
 	inLink   int
 	lastLink string // the last link target shown, so a repeat shows only its text
 	quotes   int    // blockquotes open
@@ -109,6 +133,9 @@ func (m *markdown) blocks(n *html.Node, depth int, sep string) string {
 		para.Reset()
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if m.drop[c] {
+			continue
+		}
 		if m.isBlock(c) {
 			flush()
 			if s := m.block(c, depth+1); s != "" {
@@ -347,7 +374,7 @@ func (m *markdown) inline(n *html.Node, depth int) string {
 	switch {
 	case n.Type == html.TextNode:
 		return spaceRun.ReplaceAllString(n.Data, " ")
-	case n.Type != html.ElementNode, skipTags[n.DataAtom], hidden(n):
+	case n.Type != html.ElementNode, skipTags[n.DataAtom], hidden(n), m.drop[n]:
 		return ""
 	case depth > maxDepth:
 		return " " + spaceRun.ReplaceAllString(textOf(n), " ") + " "

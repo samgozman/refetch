@@ -148,7 +148,11 @@ show how often each path was taken. Step by step:
    you have one.
 
 `fetch_page` returns a page as Markdown: headings, lists, links, tables and
-code blocks kept, scripts and hidden elements dropped. Links are absolute, and
+code blocks kept, scripts and hidden elements dropped. So is the site's own
+furniture (navigation, banner, footer, sidebars, share buttons, cookie
+notices) unless it holds the page's `<main>`, `<article>` or `<h1>`; if that
+leaves almost nothing, the whole page comes back. Pass `full_page: true` to
+keep it all. Links are absolute, and
 search engines' click-through links point at their targets, so Claude can
 follow a search result or a "next page" link. Only http, https and mailto
 links keep their target, and tracking parameters (`utm_*`, `fbclid`, `gclid`)

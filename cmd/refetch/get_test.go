@@ -216,3 +216,17 @@ func TestFetchPageSavesADocumentAsMarkdown(t *testing.T) {
 		t.Errorf("save: %q, %v", text, err)
 	}
 }
+
+func TestFetchPageFullPage(t *testing.T) {
+	fp := &fakePages{page: okPage(`<nav><a href="/docs">Docs</a></nav><main>` + strings.Repeat(article, 3) + `</main>`)}
+	usePages(t, fp)
+	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: pageURL})
+	if err != nil || strings.Contains(text, "Docs") || !strings.Contains(text, "Shared notebooks") {
+		t.Errorf("trimmed: %q, %v", text, err)
+	}
+	text, err = fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: pageURL, FullPage: true})
+	if err != nil || !strings.Contains(text, "[Docs](https://news.example.com/docs)") {
+		t.Errorf("full_page: %q, %v", text, err)
+	}
+}

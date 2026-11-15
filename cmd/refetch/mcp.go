@@ -39,6 +39,7 @@ type fetchInput struct {
 	Save     bool   `json:"save,omitempty" jsonschema:"write the full text to a file and return its path plus the first 2000 characters"`
 	Format   string `json:"format,omitempty" jsonschema:"markdown (the default: headings, lists, links, tables and code blocks kept) or text (plain text)"`
 	Render   *bool  `json:"render,omitempty" jsonschema:"true reads the page with headless Chrome even when a plain fetch got it (for content that scripts fill in); false skips the headless Chrome step; omit to let refetch decide"`
+	FullPage bool   `json:"full_page,omitzero" jsonschema:"true keeps the site's navigation, header, footer and sidebars, which markdown leaves out by default"`
 }
 
 func runMCP(ctx context.Context, cfg config.Config, stderr io.Writer) error {
@@ -90,7 +91,7 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		// is one capped line.
 		return "", fmt.Errorf("could not read %s: %s\n%s", in.URL, oneLine(err.Error(), 300), handOff(p, err))
 	}
-	text := pageText(p, in.URL, in.Format)
+	text := pageText(p, in.URL, in.Format, in.FullPage)
 	via := clientNames[p.Last.Client]
 	if p.Last.Status != 0 {
 		via = fmt.Sprintf("HTTP %d, %s", p.Last.Status, via)
@@ -124,14 +125,18 @@ const (
 )
 
 // pageText is the page in the format asked for ("" is Markdown), its links
-// resolved against the address it came from.
-func pageText(p fetch.Page, rawURL, format string) string {
+// resolved against the address it came from; full keeps the site's
+// navigation and footers in Markdown.
+func pageText(p fetch.Page, rawURL, format string, full bool) string {
 	if format == formatText {
 		return fetch.Text(p.Body, p.ContentType)
 	}
 	base, err := url.Parse(cmp.Or(p.URL, rawURL))
 	if err != nil {
 		base = nil
+	}
+	if full {
+		return fetch.FullMarkdown(p.Body, p.ContentType, base)
 	}
 	return fetch.Markdown(p.Body, p.ContentType, base)
 }
