@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -52,19 +51,19 @@ type Renderer struct {
 	dial func(ctx context.Context, network, address string) (net.Conn, error) // tests replace it
 }
 
-// Render loads rawURL in a throwaway headless Chrome profile and returns the
-// serialized DOM (at most fetch.MaxBytes).
-func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
+// Render loads rawURL in a throwaway headless Chrome profile and returns
+// the DOM after the page's scripts ran, read over the DevTools pipe.
+func (r *Renderer) Render(ctx context.Context, rawURL string) (Page, error) {
 	chrome := cmp.Or(r.Chrome, FindChrome())
 	if chrome == "" {
-		return nil, ErrNoChrome
+		return Page{}, ErrNoChrome
 	}
 	// Rendering untrusted pages without Chrome's sandbox would hand any
 	// renderer exploit root, so Chrome never runs as root: on Linux it runs
 	// as nobody instead, elsewhere the step does not run.
 	asRoot := os.Geteuid() == 0
 	if asRoot && !canDropRoot {
-		return nil, ErrRoot
+		return Page{}, ErrRoot
 	}
 	timeout := cmp.Or(r.Timeout, DefaultTimeout)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -76,46 +75,58 @@ func (r *Renderer) Render(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	px, err := startProxy(ctx, dial)
 	if err != nil {
-		return nil, err
+		return Page{}, err
 	}
 	defer px.close()
 	sweepProfiles(time.Hour)
 	profile, err := newProfile()
 	if err != nil {
-		return nil, err
+		return Page{}, err
 	}
 	defer func() { _ = os.RemoveAll(profile) }()
 
-	cmd := exec.CommandContext(ctx, chrome, chromeArgs(ctx, chrome, profile, px.addr, rawURL, timeout)...) //nolint:gosec // the user's own Chrome, found by FindChrome or REFETCH_CHROME
+	// Chrome reads commands from fd 3 and writes replies to fd 4.
+	cmdR, cmdW, err := os.Pipe()
+	if err != nil {
+		return Page{}, err
+	}
+	replyR, replyW, err := os.Pipe()
+	if err != nil {
+		_, _ = cmdR.Close(), cmdW.Close()
+		return Page{}, err
+	}
+	defer func() { _, _ = cmdW.Close(), replyR.Close() }()
+
+	cmd := exec.CommandContext(ctx, chrome, chromeArgs(ctx, chrome, profile, px.addr)...) //nolint:gosec // the user's own Chrome, found by FindChrome or REFETCH_CHROME
+	cmd.ExtraFiles = []*os.File{cmdR, replyW}
 	cmd.SysProcAttr = sysProcAttr()
 	if asRoot {
 		if err := runAsNobody(cmd, profile); err != nil {
-			return nil, err
+			_, _ = cmdR.Close(), replyW.Close()
+			return Page{}, err
 		}
 	}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // Chrome's helpers too
 	cmd.WaitDelay = 2 * time.Second
-	out := &capped{max: fetch.MaxBytes}
-	cmd.Stdout = out
 	stderr := &capped{max: 64 << 10}
 	cmd.Stderr = stderr
-	err = cmd.Run()
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // helpers that outlived the browser
+	err = cmd.Start()
+	_, _ = cmdR.Close(), replyW.Close()
+	if err != nil {
+		return Page{}, fmt.Errorf("headless Chrome failed: %w", err)
 	}
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("%w after %s", ErrTimeout, timeout)
+	page, err := drive(ctx, newCDP(cmdW, replyR), rawURL, chrome)
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // the browser and helpers that would outlive it
+	_ = cmd.Wait()
+	switch {
+	case err == nil:
+		return page, nil
+	case errors.Is(err, errNotCommitted), errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return Page{}, fmt.Errorf("%w after %s", ErrTimeout, timeout)
+	case bytes.Contains(stderr.buf.Bytes(), []byte("No usable sandbox")):
+		return Page{}, ErrSandbox
 	}
-	if err != nil && out.buf.Len() == 0 {
-		if bytes.Contains(stderr.buf.Bytes(), []byte("No usable sandbox")) {
-			return nil, ErrSandbox
-		}
-		return nil, fmt.Errorf("headless Chrome failed: %w", err)
-	}
-	if out.buf.Len() == 0 {
-		return nil, errors.New("headless Chrome returned no page")
-	}
-	return out.buf.Bytes(), nil
+	return Page{}, fmt.Errorf("headless Chrome failed: %w", err)
 }
 
 // profilePrefix names the throwaway profiles, so a later run can remove the
@@ -158,26 +169,27 @@ func sweepProfiles(age time.Duration) {
 	}
 }
 
-func chromeArgs(ctx context.Context, chrome, profile, proxy, rawURL string, timeout time.Duration) []string {
-	budget := max(timeout-2*time.Second, time.Second)
+func chromeArgs(ctx context.Context, chrome, profile, proxy string) []string {
 	args := []string{
 		"--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
 		"--disable-extensions", "--disable-sync", "--disable-background-networking",
 		"--disable-component-update", "--disable-default-apps", "--mute-audio", "--hide-scrollbars",
-		"--user-data-dir=" + profile,
+		"--user-data-dir=" + profile, "--window-size=1280,800",
 		// Every request through the proxy, loopback included (Chrome bypasses
 		// a proxy for loopback unless told not to), and no QUIC or WebRTC
 		// UDP, which would not go through it.
 		"--proxy-server=http://" + proxy, "--proxy-bypass-list=<-loopback>", "--disable-quic",
 		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
 		"--user-agent=" + userAgent(ctx, chrome),
-		"--virtual-time-budget=" + strconv.FormatInt(budget.Milliseconds(), 10),
-		"--dump-dom",
+		// navigator.webdriver stays false, as in a regular window; images
+		// are never read, only waited for.
+		"--disable-blink-features=AutomationControlled", "--blink-settings=imagesEnabled=false",
+		"--remote-debugging-pipe",
 	}
 	if e2eLocal {
 		args = append(args, "--ignore-certificate-errors")
 	}
-	return append(args, rawURL)
+	return args
 }
 
 // capped keeps the first max bytes written and drops the rest.

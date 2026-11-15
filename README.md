@@ -141,9 +141,12 @@ show how often each path was taken. Step by step:
    looks like Chrome's (about 1 s, no JavaScript). A plain Go client is only
    its backup for the Chrome-like client's own TLS or protocol errors.
 4. For a challenge or JavaScript-only page, it runs your installed Chrome or
-   Chromium headless, for 15 s at most. A challenge counts even when it comes
-   as a 403, as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or
-   429 skips this step, and so does a machine without Chrome.
+   Chromium headless, for 15 s at most. It reads the page once it has loaded
+   and its text stops changing, or, for a page that never finishes loading,
+   whatever it shows at the deadline. Ad and analytics hosts are blocked and
+   images are not downloaded. A challenge counts even when it comes as a 403,
+   as Cloudflare's does (`cf-mitigated: challenge`). A plain 403 or 429 skips
+   this step, and so does a machine without Chrome.
 5. If both steps fail, the result says why and suggests a browser tool if
    you have one.
 
@@ -250,7 +253,9 @@ These limits are always on, whatever the settings:
   `render_timeout` and can make requests to public hosts, as in any browser.
 - No cookies are kept between calls: each render uses a throwaway Chrome
   profile.
-- Pages are capped at 2 MB.
+- Pages are capped at 2 MB, and PDF and office files at 32 MB.
+- refetch drives headless Chrome over a pipe, not a debugging port, so no
+  other program on the machine can reach it.
 
 What the address check cannot know: an internal network that uses public IP
 addresses, or a service that trusts your IP address, looks public to it.

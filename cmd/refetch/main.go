@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 	"uuid"
@@ -125,7 +126,7 @@ type fetcher struct {
 }
 
 type renderer interface {
-	Render(ctx context.Context, url string) ([]byte, error)
+	Render(ctx context.Context, url string) (render.Page, error)
 }
 
 type pageGetter interface {
@@ -206,7 +207,7 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 // so does a failed one after the HTTP clients read the page.
 func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, p fetch.Page, httpErr error) (fetch.Page, error) {
 	a := fetch.Attempt{URL: url, Host: p.Last.Host, Client: render.Client}
-	var dom []byte
+	var rp render.Page
 	switch {
 	case fr.renderOff:
 		a.Outcome = render.OutcomeSkippedOff
@@ -215,8 +216,8 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, 
 	default:
 		start := time.Now()
 		var err error
-		dom, err = fr.r.Render(ctx, url)
-		a.Duration, a.Bytes = time.Since(start), len(dom)
+		rp, err = fr.r.Render(ctx, url)
+		a.Duration, a.Bytes = time.Since(start), len(rp.DOM)
 		switch {
 		case errors.Is(err, render.ErrNoChrome):
 			a.Outcome = render.OutcomeNoChrome
@@ -226,9 +227,9 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, 
 			a.Outcome, a.Err = fetch.OutcomeTimeout, err.Error()
 		case err != nil:
 			a.Outcome, a.Err = fetch.OutcomeError, err.Error()
-		case fetch.Challenge(http.StatusOK, dom):
+		case fetch.Challenge(http.StatusOK, rp.DOM):
 			a.Outcome, a.Err = fetch.OutcomeChallenge, "headless Chrome got the challenge page too"
-		case fetch.EmptyRendered(dom):
+		case fetch.EmptyRendered(rp.DOM):
 			a.Outcome, a.Err = fetch.OutcomeNeedsJS, "the page was still empty after headless Chrome ran its scripts"
 		default:
 			a.Outcome = fetch.OutcomeOK
@@ -237,7 +238,10 @@ func (fr *fetcher) renderStep(ctx context.Context, url string, mode renderMode, 
 	p.Attempts = append(p.Attempts, a)
 	switch a.Outcome {
 	case fetch.OutcomeOK:
-		p.Body, p.ContentType, p.Last = dom, "text/html", a
+		p.Body, p.ContentType, p.Last = rp.DOM, "text/html", a
+		if strings.HasPrefix(rp.URL, "https://") || strings.HasPrefix(rp.URL, "http://") { // where links resolve
+			p.URL = rp.URL
+		}
 		return p, nil
 	case render.OutcomeSkippedOff, render.OutcomeSkippedByCall, render.OutcomeNoChrome, render.OutcomeSkippedRoot:
 		return p, httpErr

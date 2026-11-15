@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,16 +24,23 @@ func site(t *testing.T) *httptest.Server {
 		switch r.URL.Path {
 		case "/js":
 			_, _ = w.Write([]byte(`<html><body><div id="root"></div><script>
-				setTimeout(function(){document.getElementById("root").innerHTML="<h1>Secret word: elder</h1>"}, 300)
+				setTimeout(function(){document.getElementById("root").innerHTML="<h1>Secret word: elder</h1><p>From the orchard notes.</p>"}, 300)
 				</script></body></html>`))
 		case "/challenge":
 			if c, err := r.Cookie("cleared"); err == nil && c.Value == "1" {
-				_, _ = w.Write([]byte(`<html><body><h1>Secret word: damson</h1></body></html>`))
+				_, _ = w.Write([]byte(`<html><body><h1>Secret word: damson</h1><p>From the orchard notes.</p></body></html>`))
 				return
 			}
 			_, _ = w.Write([]byte(`<html><head><title>Just a moment...</title></head><body>
 				<script>document.cookie="cleared=1; path=/"; setTimeout(function(){location.reload()}, 200)</script>
 				</body></html>`))
+		case "/loading": // an iframe that never loads holds back the load event
+			_, _ = w.Write([]byte(`<html><body><h1>Secret word: fig</h1><p>From the orchard notes.</p><iframe src="/hang"></iframe></body></html>`))
+		case "/tracked":
+			_, _ = w.Write([]byte(`<html><body><h1>Secret word: plum</h1><p id="ua"></p><script src="/tracker.js"></script>
+				<script>document.getElementById("ua").textContent = "webdriver=" + navigator.webdriver</script></body></html>`))
+		case "/tracker.js":
+			tracked.Add(1)
 		case "/hang":
 			<-r.Context().Done()
 		default:
@@ -42,6 +50,9 @@ func site(t *testing.T) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// tracked counts requests for /tracker.js, which a render must block.
+var tracked atomic.Int32
 
 func chromeOrSkip(t *testing.T) string {
 	t.Helper()
@@ -76,9 +87,9 @@ func TestRenderJavaScriptAndChallenge(t *testing.T) {
 	srv := site(t)
 	r := &Renderer{Chrome: chrome, Timeout: 15 * time.Second, dial: loopbackDial}
 	for path, want := range map[string]string{"/js": "Secret word: elder", "/challenge": "Secret word: damson"} {
-		dom, err := r.Render(t.Context(), srv.URL+path)
-		if err != nil || !strings.Contains(string(dom), want) {
-			t.Errorf("%s: err %v, dom %.300q", path, err, dom)
+		p, err := r.Render(t.Context(), srv.URL+path)
+		if err != nil || !strings.Contains(string(p.DOM), want) || p.URL != srv.URL+path {
+			t.Errorf("%s: err %v, url %q, dom %.300q", path, err, p.URL, p.DOM)
 		}
 	}
 	t.Logf("refused %d dials outside the test machine", outside.Load())
@@ -93,9 +104,9 @@ func TestRenderGoesThroughThePublicOnlyDialer(t *testing.T) {
 		return nil, errors.New("127.0.0.1 is not a public address")
 	}
 	r := &Renderer{Chrome: chrome, Timeout: 10 * time.Second, dial: refuse}
-	dom, _ := r.Render(t.Context(), srv.URL+"/js")
-	if strings.Contains(string(dom), "Secret word") {
-		t.Errorf("Chrome reached a loopback server around the proxy: %.300q", dom)
+	p, _ := r.Render(t.Context(), srv.URL+"/js")
+	if strings.Contains(string(p.DOM), "Secret word") {
+		t.Errorf("Chrome reached a loopback server around the proxy: %.300q", p.DOM)
 	}
 	if dials.Load() == 0 {
 		t.Error("Chrome did not use the proxy")
@@ -108,10 +119,53 @@ func TestRenderTimeout(t *testing.T) {
 	r := &Renderer{Chrome: chrome, Timeout: 3 * time.Second, dial: loopbackDial}
 	start := time.Now()
 	_, err := r.Render(t.Context(), srv.URL+"/hang")
-	// With a virtual time budget Chrome may give up first and dump an empty
-	// page; either way it must end within the hard cap.
-	if took := time.Since(start); took > 6*time.Second {
-		t.Errorf("render took %s with a 3s timeout (err %v)", took, err)
+	if took := time.Since(start); took > 6*time.Second || !errors.Is(err, ErrTimeout) {
+		t.Errorf("render took %s with a 3s timeout, err %v", took, err)
+	}
+}
+
+func TestRenderReadsAPageStillLoading(t *testing.T) {
+	chrome := chromeOrSkip(t)
+	srv := site(t)
+	r := &Renderer{Chrome: chrome, Timeout: 5 * time.Second, dial: loopbackDial}
+	start := time.Now()
+	p, err := r.Render(t.Context(), srv.URL+"/loading")
+	if err != nil || !strings.Contains(string(p.DOM), "Secret word: fig") {
+		t.Errorf("err %v, dom %.300q", err, p.DOM)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("render took %s with a 5s timeout", took)
+	}
+}
+
+func TestRenderBlocksTrackersAndLooksRegular(t *testing.T) {
+	chrome := chromeOrSkip(t)
+	var ua, hints atomic.Value
+	srv := site(t)
+	seen := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/tracked" {
+			ua.Store(req.Header.Get("User-Agent"))
+			hints.Store(req.Header.Get("Sec-Ch-Ua"))
+		}
+		srv.Config.Handler.ServeHTTP(w, req)
+	}))
+	t.Cleanup(seen.Close)
+	old := blockedURLs
+	blockedURLs = append(slices.Clone(old), "*/tracker.js*")
+	t.Cleanup(func() { blockedURLs = old })
+	r := &Renderer{Chrome: chrome, Timeout: 10 * time.Second, dial: loopbackDial}
+	p, err := r.Render(t.Context(), seen.URL+"/tracked")
+	if err != nil || !strings.Contains(string(p.DOM), "webdriver=false") {
+		t.Errorf("err %v, dom %.300q", err, p.DOM)
+	}
+	if n := tracked.Load(); n != 0 {
+		t.Errorf("the tracker was fetched %d times", n)
+	}
+	if u, _ := ua.Load().(string); strings.Contains(u, "Headless") || !strings.Contains(u, "Chrome/") {
+		t.Errorf("User-Agent %q", u)
+	}
+	if h, _ := hints.Load().(string); strings.Contains(h, "Headless") {
+		t.Errorf("Sec-Ch-Ua %q", h)
 	}
 }
 

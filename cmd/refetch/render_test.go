@@ -17,9 +17,9 @@ type fakeRenderer struct {
 	calls int
 }
 
-func (f *fakeRenderer) Render(context.Context, string) ([]byte, error) {
+func (f *fakeRenderer) Render(_ context.Context, url string) (render.Page, error) {
 	f.calls++
-	return []byte(f.dom), f.err
+	return render.Page{DOM: []byte(f.dom), URL: url + "#landed"}, f.err
 }
 
 func TestRenderStep(t *testing.T) {
@@ -55,7 +55,7 @@ func TestRenderStep(t *testing.T) {
 		if last.Client != render.Client || last.Outcome != tc.want || (err == nil) != tc.ok {
 			t.Errorf("%s: last %+v, err %v", tc.name, last, err)
 		}
-		if tc.ok && (!strings.Contains(string(p.Body), "Release notes") || p.Last.Client != render.Client) {
+		if tc.ok && (!strings.Contains(string(p.Body), "Release notes") || p.Last.Client != render.Client || p.URL != u+"#landed") {
 			t.Errorf("%s: page %+v", tc.name, p.Last)
 		}
 		if (tc.off || tc.noCall) && tc.r.calls != 0 {
