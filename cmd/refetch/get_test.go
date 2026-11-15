@@ -192,3 +192,41 @@ func TestRunStats(t *testing.T) {
 		t.Errorf("stats --reset: %d %q", code, out)
 	}
 }
+
+func TestFetchPageReadsTheExportAddress(t *testing.T) {
+	const doc = "https://docs.google.com/document/d/D0c/edit"
+	const export = "https://docs.google.com/document/d/D0c/export?format=html"
+	fp := &fakePages{page: okPage(article)}
+	usePages(t, fp)
+	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: doc})
+	if err != nil || len(fp.urls) != 1 || fp.urls[0] != export ||
+		!strings.Contains(text, "Source: "+doc+" (") || !strings.Contains(text, "Read from the export address "+export+"\n") {
+		t.Errorf("fetched %v: %q, %v", fp.urls, text, err)
+	}
+}
+
+func TestFetchPageSavesADocumentAsMarkdown(t *testing.T) {
+	fp := &fakePages{page: okPage("# Report\n\nQuarterly numbers.")}
+	fp.page.ContentType = fetch.TypeMarkdown
+	usePages(t, fp)
+	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: pageURL, Save: true})
+	if err != nil || !strings.Contains(text, ".md\nFirst 2000 characters") || !strings.Contains(text, "# Report") {
+		t.Errorf("save: %q, %v", text, err)
+	}
+}
+
+func TestFetchPageFullPage(t *testing.T) {
+	fp := &fakePages{page: okPage(`<nav><a href="/docs">Docs</a></nav><main>` + strings.Repeat(article, 3) + `</main>`)}
+	usePages(t, fp)
+	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	text, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: pageURL})
+	if err != nil || strings.Contains(text, "Docs") || !strings.Contains(text, "Shared notebooks") {
+		t.Errorf("trimmed: %q, %v", text, err)
+	}
+	text, err = fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: pageURL, FullPage: true})
+	if err != nil || !strings.Contains(text, "[Docs](https://news.example.com/docs)") {
+		t.Errorf("full_page: %q, %v", text, err)
+	}
+}

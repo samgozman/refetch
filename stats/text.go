@@ -25,7 +25,7 @@ type Header struct {
 	RenderTimeout string // like "15s"
 }
 
-var triggerNames = map[string]string{"challenge": "challenge", "needs_js": "JS-only"}
+var triggerNames = map[string]string{"challenge": "challenge", "needs_js": "JS-only", "remembered": "remembered host"}
 
 // WriteText writes the report as the plain-text table refetch stats prints.
 func (r Report) WriteText(w io.Writer, h Header) {

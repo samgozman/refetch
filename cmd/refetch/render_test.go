@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/samgozman/refetch/fetch"
 	"github.com/samgozman/refetch/render"
+	"github.com/samgozman/refetch/store"
 )
 
 type fakeRenderer struct {
@@ -17,9 +19,9 @@ type fakeRenderer struct {
 	calls int
 }
 
-func (f *fakeRenderer) Render(context.Context, string) ([]byte, error) {
+func (f *fakeRenderer) Render(_ context.Context, url string) (render.Page, error) {
 	f.calls++
-	return []byte(f.dom), f.err
+	return render.Page{DOM: []byte(f.dom), URL: url + "#landed"}, f.err
 }
 
 func TestRenderStep(t *testing.T) {
@@ -55,7 +57,7 @@ func TestRenderStep(t *testing.T) {
 		if last.Client != render.Client || last.Outcome != tc.want || (err == nil) != tc.ok {
 			t.Errorf("%s: last %+v, err %v", tc.name, last, err)
 		}
-		if tc.ok && (!strings.Contains(string(p.Body), "Release notes") || p.Last.Client != render.Client) {
+		if tc.ok && (!strings.Contains(string(p.Body), "Release notes") || p.Last.Client != render.Client || p.URL != u+"#landed") {
 			t.Errorf("%s: page %+v", tc.name, p.Last)
 		}
 		if (tc.off || tc.noCall) && tc.r.calls != 0 {
@@ -116,8 +118,55 @@ func TestRenderModes(t *testing.T) {
 func TestNotTextHint(t *testing.T) {
 	p := fetch.Page{Last: fetch.Attempt{Client: fetch.ClientChromeLike, Outcome: fetch.OutcomeError, Status: 200}}
 	p.Attempts = []fetch.Attempt{p.Last}
-	err := fmt.Errorf("%w (application/pdf)", fetch.ErrNotText)
-	if h := handOff(p, err); !strings.Contains(h, "not PDFs, images or other files") {
+	err := fmt.Errorf("%w (image/png)", fetch.ErrNotText)
+	if h := handOff(p, err); !strings.Contains(h, "not images, audio, video or other files") {
 		t.Errorf("hand-off %q", h)
+	}
+	err = fmt.Errorf("%w: the PDF has no text layer", fetch.ErrDocument)
+	if h := handOff(p, err); !strings.Contains(h, "a scanned PDF has no text layer") {
+		t.Errorf("hand-off %q", h)
+	}
+}
+
+func TestRememberedHostRendersFirst(t *testing.T) {
+	const u = "https://app.example.com/feed"
+	st, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rendered := "<html><body><h1>Feed</h1><p>" + strings.Repeat("Shared notebooks are on every plan. ", 10) + "</p></body></html>"
+	needsJS := fetch.Page{Last: fetch.Attempt{URL: u, Host: "app.example.com", Client: fetch.ClientChromeLike, Outcome: fetch.OutcomeNeedsJS, Status: 200}}
+	needsJS.Attempts = []fetch.Attempt{needsJS.Last}
+	fp := &fakePages{page: needsJS, err: errors.New("page needs JavaScript")}
+	r := &fakeRenderer{dom: rendered}
+	fr := &fetcher{f: fp, r: r, st: st, via: "mcp"}
+
+	for i := range 3 {
+		p, err := fr.get(t.Context(), u, renderAuto)
+		if err != nil || p.Last.Client != render.Client {
+			t.Fatalf("fetch %d: %v, %+v", i, err, p.Last)
+		}
+	}
+	if len(fp.urls) != 2 || r.calls != 3 {
+		t.Errorf("the third fetch should go to headless Chrome alone: HTTP %d times, Chrome %d times", len(fp.urls), r.calls)
+	}
+
+	r.dom, r.err = "", render.ErrTimeout
+	p, err := fr.get(t.Context(), u, renderAuto)
+	if err == nil || r.calls != 4 || len(fp.urls) != 3 || len(p.Attempts) != 2 || p.Attempts[0].Client != render.Client {
+		t.Errorf("a failed remembered render falls back to HTTP once: %v, Chrome %d, HTTP %d, %+v", err, r.calls, len(fp.urls), p.Attempts)
+	}
+	if p, _ := fr.get(t.Context(), u, renderNever); len(p.Attempts) == 0 || p.Attempts[0].Client == render.Client {
+		t.Errorf("render: false never goes to Chrome first: %+v", p.Attempts)
+	}
+
+	r.dom, r.err = rendered, nil
+	for range 2 {
+		_, _ = fr.get(t.Context(), u, renderAuto)
+	}
+	calls := r.calls
+	if _, _ = fr.get(t.Context(), "file://app.example.com/etc/passwd", renderAuto); r.calls != calls {
+		t.Error("a file: URL on a remembered host reached headless Chrome")
 	}
 }

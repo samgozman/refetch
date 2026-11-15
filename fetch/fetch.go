@@ -5,14 +5,12 @@
 package fetch
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
-	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,7 +23,8 @@ import (
 const (
 	ClientChromeLike  = "chrome_like"
 	ClientPlain       = "plain"        // the plain client as the first step (Impersonate off or fallback)
-	ClientPlainBackup = "plain_backup" // the plain client after the Chrome-like client errored
+	ClientPlainBackup = "plain_backup" // the plain client after the Chrome-like client errored or was refused
+	ClientStructured  = "structured"   // a JavaScript-only page's structured data, when nothing else read it
 )
 
 // Outcomes of one attempt.
@@ -41,7 +40,7 @@ const (
 
 // Impersonation modes.
 const (
-	ImpersonateAlways   = "always"   // Chrome-like first, plain backup on its TLS or protocol errors (default)
+	ImpersonateAlways   = "always"   // Chrome-like first, plain backup on its TLS or protocol errors or a refusal (default)
 	ImpersonateFallback = "fallback" // plain first, Chrome-like when the plain client is refused or challenged
 	ImpersonateOff      = "off"      // plain client only
 )
@@ -52,6 +51,7 @@ const (
 	DefaultRobotsAgent = "refetch"
 	DefaultTimeout     = 20 * time.Second
 	MaxBytes           = 2 << 20
+	TypeMarkdown       = "text/markdown; charset=utf-8" // the content type of a document read as Markdown
 	robotsTTL          = time.Hour
 )
 
@@ -71,6 +71,8 @@ type Page struct {
 	URL         string    // where Body came from, after redirects; "" when unknown
 	Last        Attempt   // the attempt that produced Body, or the last failure
 	Attempts    []Attempt // every attempt of this call, in order
+	Via         string    // where the text came from when not the page itself, such as a site's API
+	Shell       []byte    // a JavaScript-only page as the HTTP clients got it, kept for its structured data
 }
 
 // Fetcher gets pages. The zero value impersonates Chrome first and ignores
@@ -123,7 +125,12 @@ func (f *Fetcher) Get(ctx context.Context, rawURL string) (Page, error) {
 		}
 	default:
 		err = f.try(ctx, &p, ClientChromeLike, rawURL)
-		if err != nil && p.Last.Status == 0 && backupWorthy(err) && ctx.Err() == nil {
+		// The plain client backs up the Chrome-like one's own TLS or protocol
+		// errors, and a plain refusal: some sites refuse a browser look-alike
+		// from an address and serve an honest client (Discourse forums of
+		// OpenAI and NVIDIA did, Nov 2026).
+		retry := p.Last.Status == 0 && backupWorthy(err) || p.Last.Outcome == OutcomeRefused
+		if err != nil && retry && ctx.Err() == nil {
 			err = f.try(ctx, &p, ClientPlainBackup, rawURL)
 		}
 	}
@@ -155,8 +162,17 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 		a.Outcome = OutcomeError
 		err = fmt.Errorf("HTTP %d (%s client)", status, client)
 	case NotText(ct, body) != "":
-		a.Outcome = OutcomeError
-		err = fmt.Errorf("%w (%s)", ErrNotText, NotText(ct, body))
+		md, ok, derr := Document(ctx, body)
+		switch {
+		case !ok:
+			a.Outcome = OutcomeError
+			err = fmt.Errorf("%w (%s)", ErrNotText, NotText(ct, body))
+		case derr != nil:
+			a.Outcome = OutcomeError
+			err = derr
+		default:
+			body, ct = []byte(md), TypeMarkdown
+		}
 	case NeedsJS(body, ct):
 		a.Outcome = OutcomeNeedsJS
 		err = fmt.Errorf("page needs JavaScript to show its content (HTTP %d, %s client)", status, client)
@@ -166,7 +182,12 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	}
 	f.record(p, &a)
 	if err == nil {
-		p.Body, p.ContentType, p.URL = body, ct, r.url
+		p.Body, p.ContentType = toUTF8(body, ct)
+		p.URL = r.url
+	}
+	if a.Outcome == OutcomeNeedsJS {
+		p.Shell, _ = toUTF8(body, ct)
+		p.URL = r.url
 	}
 	return err
 }
@@ -221,7 +242,7 @@ func backupWorthy(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	for _, s := range []string{"not a public address", "no such host", "connection refused", "not an http(s) url", "redirect"} {
+	for _, s := range []string{"not a public address", "no such host", "connection refused", "not an http(s) url", "redirect", "file is larger"} {
 		if strings.Contains(msg, s) {
 			return false
 		}
@@ -243,78 +264,6 @@ func isTimeout(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
-}
-
-// challengeMarkers appear in bot-protection interstitials (Cloudflare,
-// DataDome, PerimeterX, Imperva, Akamai).
-var challengeMarkers = []string{
-	"challenge-platform", "cf-browser-verification", "cf_chl_", "<title>just a moment...</title>",
-	"attention required! | cloudflare", "captcha-delivery.com", "px-captcha", "_incapsula_resource",
-	"/_sec/cp_challenge", "enable javascript and cookies to continue",
-	"prove your humanity", // Reddit's verification page, also after JavaScript ran
-}
-
-// Challenge reports whether a response is a bot challenge rather than the
-// page: HTTP 503, HTTP 202 (AWS WAF answers a GET with an empty 202 and a
-// challenge script), or a short page carrying a challenge marker.
-func Challenge(status int, body []byte) bool {
-	if status == http.StatusServiceUnavailable || status == http.StatusAccepted {
-		return true
-	}
-	if len(body) > 256<<10 {
-		return false
-	}
-	lower := strings.ToLower(string(body))
-	for _, m := range challengeMarkers {
-		if strings.Contains(lower, m) {
-			return true
-		}
-	}
-	return false
-}
-
-// mountPoint is an empty element a JavaScript framework renders into.
-var mountPoint = regexp.MustCompile(`(?i)<div[^>]+id=["']?(root|app|__next|__nuxt|svelte|main)["']?[^>]*>\s*</div>|<app-root[^>]*>\s*</app-root>`)
-
-// jsNotices are what a page says when it cannot work without JavaScript.
-var jsNotices = []string{
-	"enable javascript", "javascript is required", "requires javascript", "javascript is disabled",
-	"javascript must be enabled", "turn on javascript",
-}
-
-// NeedsJS reports whether an HTML page is a JavaScript-only shell: under
-// about 200 characters of readable text plus an empty mount point or an
-// enable-JavaScript notice, or under 100 characters plus a script (an app
-// shell, or a proof-of-work page that solves a puzzle and resubmits).
-func NeedsJS(body []byte, contentType string) bool {
-	if len(body) > 512<<10 || (contentType != "" && !strings.Contains(contentType, "html")) {
-		return false
-	}
-	text := len([]rune(Text(body, "text/html")))
-	if text >= 200 {
-		return false
-	}
-	if mountPoint.Match(body) || (text < 100 && bytes.Contains(bytes.ToLower(body), []byte("<script"))) {
-		return true
-	}
-	lower := strings.ToLower(string(body))
-	for _, n := range jsNotices {
-		if strings.Contains(lower, n) {
-			return true
-		}
-	}
-	return false
-}
-
-// EmptyRendered reports whether a DOM from headless Chrome has next to no
-// text. Unlike NeedsJS it ignores scripts and mount points, which stay.
-func EmptyRendered(dom []byte) bool {
-	return len([]rune(strings.TrimSpace(Text(dom, "text/html")))) < 20
-}
-
-// Blocked reports an anti-bot refusal: HTTP 403 or 429, or a challenge.
-func Blocked(status int, body []byte) bool {
-	return status == http.StatusForbidden || status == http.StatusTooManyRequests || Challenge(status, body)
 }
 
 // allowed checks the host's robots.txt for the robots agent, cached for an

@@ -150,3 +150,35 @@ func TestErrorsKeepNoQueryStrings(t *testing.T) {
 		t.Errorf("events.db mode %v, %v", fi.Mode().Perm(), err)
 	}
 }
+
+func TestNeedsRender(t *testing.T) {
+	s := open(t)
+	ctx := t.Context()
+	now := time.Now()
+	fetch := func(id, host string, at time.Time, steps ...string) {
+		for _, step := range steps {
+			client, outcome, _ := strings.Cut(step, ":")
+			if err := s.RecordAttempt(ctx, Attempt{Time: at, FetchID: id, Via: "mcp", URL: "https://" + host + "/p?q=1", Client: client, Outcome: outcome}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	since := now.Add(-time.Hour)
+	fetch("a1", "app.example.com", now.Add(-3*time.Minute), "chrome_like:needs_js", "headless:ok")
+	fetch("a2", "app.example.com", now.Add(-2*time.Minute), "headless:ok")
+	fetch("b1", "mixed.example.com", now.Add(-3*time.Minute), "chrome_like:needs_js", "headless:ok")
+	fetch("b2", "mixed.example.com", now.Add(-2*time.Minute), "chrome_like:ok", "headless:ok")
+	fetch("c1", "once.example.com", now.Add(-2*time.Minute), "chrome_like:challenge", "headless:ok")
+	fetch("d1", "failing.example.com", now.Add(-3*time.Minute), "chrome_like:challenge", "headless:ok")
+	fetch("d2", "failing.example.com", now.Add(-2*time.Minute), "headless:timeout", "chrome_like:challenge")
+	fetch("e1", "old.example.com", now.Add(-3*time.Hour), "chrome_like:needs_js", "headless:ok")
+	fetch("e2", "old.example.com", now.Add(-2*time.Hour), "chrome_like:needs_js", "headless:ok")
+	for host, want := range map[string]bool{
+		"app.example.com": true, "mixed.example.com": false, "once.example.com": false,
+		"failing.example.com": false, "old.example.com": false, "new.example.com": false,
+	} {
+		if got, err := s.NeedsRender(ctx, host, since, 2); err != nil || got != want {
+			t.Errorf("NeedsRender(%s) = %v, %v; want %v", host, got, err, want)
+		}
+	}
+}

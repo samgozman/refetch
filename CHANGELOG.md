@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.3.0](https://github.com/samgozman/refetch/compare/v0.2.0...v0.3.0) (2026-11-15)
+
+
+### Features
+
+* drive headless Chrome over the DevTools pipe; read slow pages at the deadline ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* fall back to a page's schema.org structured data ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* leave site navigation, footers and sidebars out of the Markdown ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* read Google Docs, Sheets, Slides and Drive files through their export addresses ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* read PDFs and Word, Excel and PowerPoint files as Markdown ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* read Stack Exchange, Discourse topics and long GitHub issues through their APIs ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* read the text of web components' shadow roots ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* say when a page read is a login wall or next to empty ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* send hosts that only headless Chrome can read straight to it ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* try the plain client when the Chrome-like client is refused ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+
+
+### Bug Fixes
+
+* decode pages in legacy charsets to UTF-8 ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* give a captcha wall one more try with headers in another order ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* make headless Chrome look like the installed Chrome, in every frame and worker ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* read pages whose content is in &lt;noscript&gt; or hidden until scripts run ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* send Chrome's full navigation headers, matched to the TLS profile ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+* update brotli, compress and x/net past reported vulnerabilities ([0c6d82c](https://github.com/samgozman/refetch/commit/0c6d82c25f7a544ab797be6b5546676895a7865f))
+
 ## [0.2.0](https://github.com/samgozman/refetch/compare/v0.1.1...v0.2.0) (2026-10-24)
 
 

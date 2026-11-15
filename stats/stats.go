@@ -292,7 +292,7 @@ func groupFetches(attempts []store.Attempt) []fetch {
 		f.end = a.Time
 		f.durationMS += a.Duration.Milliseconds()
 		if a.Client == "headless" {
-			f.headless, f.trigger, f.headlessMS = a.Outcome, f.last, a.Duration.Milliseconds()
+			f.headless, f.trigger, f.headlessMS = a.Outcome, cmp.Or(f.last, "remembered"), a.Duration.Milliseconds() // first: a host that needed it before
 		} else {
 			f.last = a.Outcome
 		}
