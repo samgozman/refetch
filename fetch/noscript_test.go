@@ -10,7 +10,7 @@ import (
 func discoursePage() string {
 	var topics strings.Builder
 	for i := range 20 {
-		topics.WriteString(`<tr><td><a href="/t/topic/` + string(rune('a'+i)) + `">Compose starts the wrong image, case ` + string(rune('a'+i)) + `</a></td><td>5</td></tr>`)
+		topics.WriteString(`<tr><td><a href="/t/topic/` + string(rune('a'+i)) + `">Compose starts the wrong image, case ` + string(rune('a'+i)) + `</a></td><td>5</td><td>42</td><td>November 12, 2026</td></tr>`)
 	}
 	header := `<div class="d-header">` + strings.Repeat(`<a href="/x">Product link</a> `, 30) + `</div>`
 	return `<html><head><title>Docker Forums</title><meta name="generator" content="Discourse 2026.11.0"></head><body>` + header +
@@ -36,6 +36,21 @@ func TestNoscriptContent(t *testing.T) {
 		`<noscript>You need to enable JavaScript to run this app.</noscript></body></html>`
 	if md := Markdown([]byte(article), "text/html", nil); strings.Contains(md, "enable JavaScript") || !strings.Contains(md, "# Notes") {
 		t.Errorf("a short noscript notice beside the content:\n%.300s", md)
+	}
+}
+
+func TestNoscriptMenuIsNoContent(t *testing.T) {
+	var menu strings.Builder
+	for i := range 40 {
+		menu.WriteString(`<li><a href="/c/` + string(rune('a'+i%26)) + `">Category number ` + string(rune('a'+i%26)) + `</a></li>`)
+	}
+	page := []byte(`<html><head><title>Forum</title></head><body><div id="app"></div><script>` + strings.Repeat("var x = 1;", 12000) +
+		`</script><noscript><ul>` + menu.String() + `</ul></noscript></body></html>`)
+	if !NeedsJS(page, "text/html") {
+		t.Error("a shell whose <noscript> is only a menu needs JavaScript")
+	}
+	if md := Markdown(page, "text/html", nil); strings.Contains(md, "Category number") {
+		t.Errorf("a menu is no page:\n%.300s", md)
 	}
 }
 

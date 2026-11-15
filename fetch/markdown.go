@@ -110,7 +110,7 @@ func noscriptMarkdown(doc *html.Node, page *url.URL, trim bool) string {
 			b.WriteString(n.FirstChild.Data)
 		}
 	}
-	if b.Len() == 0 {
+	if _, plain := fragmentText(b.String()); plain < minTrimmed {
 		return ""
 	}
 	return htmlMarkdown([]byte(b.String()), page, render{trim: trim})
