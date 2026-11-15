@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strings"
@@ -73,11 +74,19 @@ func pdfText(body []byte) (text string, err error) {
 		return "", fmt.Errorf("%w: %w", ErrDocument, err)
 	}
 	var b strings.Builder
-	for i := 1; i <= r.NumPage() && b.Len() < MaxDocBytes; i++ {
+	budget := int64(maxPDFUnpacked)
+	for i := 1; i <= min(r.NumPage(), maxPDFPages) && b.Len() < MaxDocBytes; i++ {
 		p := r.Page(i)
 		if p.V.IsNull() {
 			continue
 		}
+		limit := min(budget, maxPageUnpacked)
+		n := pageUnpacked(p, limit)
+		if n > limit {
+			return "", fmt.Errorf("%w: page %d unpacks to more than refetch reads (%d MB a page, %d MB a file)",
+				ErrDocument, i, maxPageUnpacked>>20, maxPDFUnpacked>>20)
+		}
+		budget -= n
 		if page := pageLines(p.Content().Text); page != "" {
 			b.WriteString(page)
 			b.WriteString("\n\n")
@@ -87,6 +96,50 @@ func pdfText(body []byte) (text string, err error) {
 		return "", fmt.Errorf("%w: the PDF has no text layer (a scan or images only)", ErrDocument)
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+// Limits on a PDF: the parser holds a page's text runs in memory and has no
+// cap of its own on what a compressed stream unpacks to.
+const (
+	maxPDFPages     = 2000
+	maxPageUnpacked = 8 << 20
+	maxPDFUnpacked  = 64 << 20
+)
+
+// pageUnpacked is what the streams the parser reads for a page (its content
+// and its fonts' character maps) unpack to, counted up to limit and past
+// it by one: more than limit means the page is over.
+func pageUnpacked(p pdf.Page, limit int64) int64 {
+	vals := []pdf.Value{p.V.Key("Contents")}
+	for _, name := range p.Fonts() {
+		f := p.Font(name)
+		vals = append(vals, f.V.Key("ToUnicode"), f.V.Key("Encoding"))
+	}
+	var n int64
+	for _, v := range vals {
+		if v.Kind() == pdf.Array {
+			for i := range v.Len() {
+				n += streamLen(v.Index(i), limit-n)
+			}
+		} else {
+			n += streamLen(v, limit-n)
+		}
+		if n > limit {
+			return limit + 1
+		}
+	}
+	return n
+}
+
+// streamLen reads a stream value to its end, up to limit+1 bytes.
+func streamLen(v pdf.Value, limit int64) int64 {
+	if v.Kind() != pdf.Stream || limit < 0 {
+		return 0
+	}
+	rc := v.Reader()
+	defer func() { _ = rc.Close() }()
+	n, _ := io.Copy(io.Discard, io.LimitReader(rc, limit+1))
+	return n
 }
 
 // pageLines joins a page's text runs, in the order the page draws them, into

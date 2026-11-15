@@ -3,6 +3,7 @@ package fetch
 import (
 	"archive/zip"
 	"bytes"
+	"compress/zlib"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,12 +11,15 @@ import (
 )
 
 // makePDF builds a one-page PDF whose page draws content with Helvetica.
-func makePDF(content string) []byte {
+func makePDF(content string) []byte { return makePDFStream(content, "") }
+
+// makePDFStream is makePDF with the content stored under filter.
+func makePDFStream(content, filter string) []byte {
 	objs := []string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
+		fmt.Sprintf("<< /Length %d %s >>\nstream\n%s\nendstream", len(content), filter, content),
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
 	}
 	var b bytes.Buffer
@@ -79,6 +83,20 @@ func TestDocumentPDF(t *testing.T) {
 	if _, ok, err = Document([]byte("%PDF-1.7\n\x00 garbage")); !ok || !errors.Is(err, ErrDocument) {
 		t.Errorf("broken PDF: %v %v", ok, err)
 	}
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	_, _ = zw.Write([]byte("BT /F1 12 Tf 72 720 Td (x) Tj ET " + strings.Repeat(" ", maxPageUnpacked)))
+	_ = zw.Close()
+	if _, ok, err = Document(makePDFStream(z.String(), "/Filter /FlateDecode")); !ok || !errors.Is(err, ErrDocument) || !strings.Contains(err.Error(), "unpacks to more") {
+		t.Errorf("a stream that unpacks past the limit: %v %v", ok, err)
+	}
+	z.Reset()
+	zw = zlib.NewWriter(&z)
+	_, _ = zw.Write([]byte("BT /F1 12 Tf 72 720 Td (Compressed text) Tj ET"))
+	_ = zw.Close()
+	if md, ok, err := Document(makePDFStream(z.String(), "/Filter /FlateDecode")); !ok || err != nil || md != "Compressed text" {
+		t.Errorf("compressed PDF: %v %v %q", ok, err, md)
+	}
 }
 
 func TestDocumentDocx(t *testing.T) {
@@ -113,6 +131,26 @@ func TestDocumentXlsx(t *testing.T) {
 	want := "## Prices\n\n| Item |  | Price |\n| --- | --- | --- |\n| Tea | TRUE | 4.5 |\n| Cake |  | 3 |"
 	if !ok || err != nil || md != want {
 		t.Errorf("xlsx: %v %v\n%s", ok, err, md)
+	}
+}
+
+func TestDocumentXlsxLimits(t *testing.T) {
+	var rows strings.Builder
+	for r := 1; r <= 5000; r++ {
+		fmt.Fprintf(&rows, `<row r="%d"><c r="A%d" t="s"><v>0</v></c><c r="B%d" t="s"><v>0</v></c></row>`, r, r, r)
+	}
+	book := makeZip(t, map[string]string{
+		"xl/workbook.xml":            `<workbook ` + rNS + `><sheets><sheet name="Big" r:id="rId1"/><sheet name="Never" r:id="rId2"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/sharedStrings.xml":       `<sst><si><t>` + strings.Repeat("long text ", maxSheetText/2000) + `</t></si></sst>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData>` + rows.String() + `</sheetData></worksheet>`,
+	})
+	md, ok, err := Document(book)
+	if !ok || err != nil || len(md) > maxSheetText+64<<10 || !strings.Contains(md, "(stopped at") || strings.Contains(md, "Never") {
+		t.Errorf("xlsx limits: %v %v, %d bytes, ends %q", ok, err, len(md), md[max(0, len(md)-80):])
+	}
+	if c := cellText(strings.Repeat("é", 5000)); len([]rune(c)) != maxCellRunes+1 {
+		t.Errorf("cellText kept %d runes", len([]rune(c)))
 	}
 }
 

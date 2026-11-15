@@ -19,6 +19,8 @@ const (
 	maxPartBytes  = 32 << 20
 	maxOfficeRead = 96 << 20
 	maxSheetCells = 100000
+	maxSheetText  = 8 << 20 // a shared string can fill any number of cells
+	maxCellRunes  = 1000
 )
 
 // office is a Word, Excel or PowerPoint file: a zip of XML parts.
@@ -259,33 +261,37 @@ func (o *office) xlsx() (string, error) {
 		return "", err
 	}
 	var out []string
-	cells := 0
+	var left sheetBudget
+	left.cells, left.text = maxSheetCells, maxSheetText
 	for i, sheet := range sheets {
-		rows, err := o.sheet(sheet, shared, &cells)
+		rows, err := o.sheet(sheet, shared, &left)
 		if err != nil {
 			return "", err
 		}
 		if len(rows) > 0 {
 			out = append(out, "## "+cellText(names[i]), gridTable(rows))
 		}
-		if cells > maxSheetCells {
-			out = append(out, fmt.Sprintf("(stopped after %d cells)", maxSheetCells))
+		if left.cells < 0 || left.text < 0 {
+			out = append(out, fmt.Sprintf("(stopped at %d cells or %d MB of text)", maxSheetCells, maxSheetText>>20))
 			break
 		}
 	}
 	return joinBlocks(out), nil
 }
 
+// sheetBudget is what is left to read of a workbook: cells and bytes.
+type sheetBudget struct{ cells, text int }
+
 // sheet reads one worksheet's cells into rows, placing each by its
 // reference (B3) so that empty cells keep their column.
-func (o *office) sheet(name string, shared []string, cells *int) ([][]string, error) {
+func (o *office) sheet(name string, shared []string, left *sheetBudget) ([][]string, error) {
 	var rows [][]string
 	var row []string
 	var kind, ref string
 	var val strings.Builder
 	inV := false
 	err := o.walk(name, func(tok xml.Token) {
-		if *cells > maxSheetCells {
+		if left.cells < 0 || left.text < 0 {
 			return
 		}
 		switch t := tok.(type) {
@@ -308,8 +314,10 @@ func (o *office) sheet(name string, shared []string, cells *int) ([][]string, er
 			case "v", "t":
 				inV = false
 			case "c":
-				row = placeCell(row, column(ref), cellValue(kind, val.String(), shared))
-				*cells++
+				v := cellText(cellValue(kind, val.String(), shared))
+				row = placeCell(row, column(ref), v)
+				left.cells--
+				left.text -= len(v)
 			case "row":
 				rows = append(rows, row)
 			}
@@ -339,7 +347,7 @@ func placeCell(row []string, col int, v string) []string {
 		row = append(row, make([]string, col-len(row))...)
 	}
 	if len(row) < maxTableWidth {
-		row = append(row, cellText(v))
+		row = append(row, v)
 	}
 	return row
 }
@@ -402,9 +410,17 @@ func (o *office) pptx() (string, error) {
 	return joinBlocks(out), nil
 }
 
-// cellText makes a value fit in one table cell.
+// cellText makes a value fit in one table cell, clipped to maxCellRunes;
+// the byte cut first keeps a huge shared string cheap in every cell.
 func cellText(s string) string {
-	return strings.ReplaceAll(oneLineText(s), "|", `\|`)
+	if len(s) > 4*maxCellRunes {
+		s = strings.ToValidUTF8(s[:4*maxCellRunes], "")
+	}
+	s = oneLineText(s)
+	if r := []rune(s); len(r) > maxCellRunes {
+		s = string(r[:maxCellRunes]) + "…"
+	}
+	return strings.ReplaceAll(s, "|", `\|`)
 }
 
 // gridTable lays out rows as a Markdown table, the first row as its header;
