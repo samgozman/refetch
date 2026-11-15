@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -107,6 +108,9 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 		head += "Read from the " + p.Via + ", not the page as a browser shows it\n"
 	}
 	if note := renderNote(p); note != "" {
+		head += note + "\n"
+	}
+	if note := thinNote(text); note != "" {
 		head += note + "\n"
 	}
 	if !in.Save {
@@ -273,6 +277,28 @@ func renderNote(p fetch.Page) string {
 		return note + " This is the HTTP client's text."
 	}
 	return "headless Chrome step failed: " + oneLine(cmp.Or(a.Err, a.Outcome), 200) + ". This is the HTTP client's text."
+}
+
+// loginWords are what a page says when it shows its content to members
+// only.
+var loginWords = []string{
+	"log in to continue", "sign in to continue", "log in to use", "log in to view", "sign in to view",
+	"you must be logged in", "you need to log in", "you need to sign in", "please log in", "please sign in",
+	"log in or sign up", "sign up to see", "login required", "members only",
+}
+
+// thinNote warns that a page read as text is a login wall or next to
+// empty, so that Claude does not take it for the content.
+func thinNote(text string) string {
+	n := len([]rune(text))
+	lower := strings.ToLower(text)
+	if n < 2000 && slices.ContainsFunc(loginWords, func(w string) bool { return strings.Contains(lower, w) }) {
+		return "The page asks for a login before it shows its content; refetch reads public pages only. " + browserTool
+	}
+	if n < 200 {
+		return fmt.Sprintf("The page has almost no text (%d characters): an empty app, a removed page or a wall. "+browserTool, n)
+	}
+	return ""
 }
 
 func errorHint(status int, err error) string {

@@ -61,6 +61,9 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 	if note := renderNote(p); note != "" {
 		_, _ = fmt.Fprintln(stderr, note)
 	}
+	if note := thinNote(pageText(p, fs.Arg(0), *format, *fullPage)); note != "" {
+		_, _ = fmt.Fprintln(stderr, note)
+	}
 	_, _ = fmt.Fprintf(stderr, "won: %s\n\n", clientNames[p.Last.Client])
 	out := string(p.Body)
 	if !*raw {

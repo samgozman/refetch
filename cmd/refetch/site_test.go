@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/samgozman/refetch/config"
 	"github.com/samgozman/refetch/fetch"
 	"github.com/samgozman/refetch/render"
 	"github.com/samgozman/refetch/site"
@@ -86,5 +87,25 @@ func TestStructuredFallback(t *testing.T) {
 	fr.f = shellPages{shell: `<html><div id="root"></div></html>`}
 	if _, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: u}); err == nil {
 		t.Error("a shell with no structured data still fails")
+	}
+}
+
+func TestThinNote(t *testing.T) {
+	long := strings.Repeat("A full answer with its steps and context. ", 60)
+	for text, want := range map[string]string{
+		"Welcome to Reddit\n\nLog in to use old Reddit. To keep Reddit safe, accounts are required.": "asks for a login",
+		"Reddit - The heart of the internet": "almost no text (34 characters)",
+		long:                                 "",
+		long + " Please log in to comment.":  "",
+	} {
+		if got := thinNote(text); want == "" && got != "" || want != "" && !strings.Contains(got, want) {
+			t.Errorf("thinNote(%.40q) = %q, want %q", text, got, want)
+		}
+	}
+	fp := &fakePages{page: okPage("<html><body><p>Log in to continue.</p></body></html>")}
+	usePages(t, fp)
+	out, err := fetchPage(t.Context(), newFetcherWith(config.Default(), nil, "mcp", nil), t.TempDir(), fetchInput{URL: pageURL})
+	if err != nil || !strings.Contains(out, "asks for a login") {
+		t.Errorf("%v\n%s", err, out)
 	}
 }
