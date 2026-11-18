@@ -1,0 +1,27 @@
+{
+ "id": "117466985005297414",
+ "created_at": "2026-10-19T09:59:05.999Z",
+ "in_reply_to_id": "117466983307949301",
+ "in_reply_to_account_id": "13179",
+ "sensitive": false,
+ "spoiler_text": "",
+ "visibility": "public",
+ "language": "en",
+ "url": "https://mastodon.social/@Mastodon/117466985005297414",
+ "replies_count": 20,
+ "reblogs_count": 227,
+ "favourites_count": 445,
+ "edited_at": null,
+ "content": "<p>We didn’t want to require you to have a GitHub profile to report issues or suggest ideas, so starting now you can do it on our new community forum. </p><p>You can also vote for other people’s ideas to keep things manageable. It’s the main place we’ll be looking for feedback!</p><p><a href=\"https://community.joinmastodon.org/\" target=\"_blank\" rel=\"nofollow noopener\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"\">community.joinmastodon.org/</span><span class=\"invisible\"></span></a></p>",
+ "account": {
+  "id": "13179",
+  "username": "Mastodon",
+  "acct": "Mastodon",
+  "display_name": "Mastodon",
+  "url": "https://mastodon.social/@Mastodon",
+  "bot": false
+ },
+ "reblog": null,
+ "media_attachments": [],
+ "poll": null
+}
