@@ -39,10 +39,27 @@ func stackExchange(u *url.URL) *Route {
 	return &Route{Name: "Stack Exchange API", Read: func(ctx context.Context, get Getter) (string, error) {
 		body, err := get(ctx, api)
 		if err != nil {
-			return "", err
+			return "", seError(body, err)
 		}
 		return seMarkdown(body)
 	}}
+}
+
+// seError is the API's own reason for an error answer (HTTP 400). A
+// throttle_violation is too many requests or the day's quota spent.
+func seError(body []byte, err error) error {
+	var res struct {
+		Name    string `json:"error_name"`
+		Message string `json:"error_message"`
+	}
+	if json.Unmarshal(body, &res) != nil || res.Message == "" {
+		return err
+	}
+	reason := errors.New(oneLine(res.Message))
+	if res.Name == "throttle_violation" {
+		return fmt.Errorf("%w: %w", ErrRateLimited, reason)
+	}
+	return reason
 }
 
 type seUser struct {
@@ -78,7 +95,7 @@ func seMarkdown(body []byte) (string, error) {
 		return "", fmt.Errorf("decoding its answer: %w", err)
 	}
 	if res.ErrorMessage != "" {
-		return "", errors.New(oneLine(res.ErrorMessage))
+		return "", seError(body, nil)
 	}
 	if len(res.Items) == 0 {
 		return "", errors.New("no such question")

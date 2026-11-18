@@ -6,6 +6,7 @@ package site
 import (
 	"bytes"
 	"context"
+	"errors"
 	"html"
 	"net/url"
 	"regexp"
@@ -15,8 +16,11 @@ import (
 // Client is the attempt client name of a read through a site's API.
 const Client = "site_api"
 
-// Getter fetches one public URL and returns its body.
+// Getter fetches one public URL: its body, or an error and the error answer's.
 type Getter func(ctx context.Context, url string) ([]byte, error)
+
+// ErrRateLimited marks a read refused for the API's rate limit, as HTTP 429 is.
+var ErrRateLimited = errors.New("rate limited")
 
 // Route reads one page through its site's API.
 type Route struct {

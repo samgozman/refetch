@@ -18,6 +18,37 @@ func fakeGet(pages map[string]string, asked *[]string) Getter {
 	}
 }
 
+// failGet fails every URL as the getter does for an HTTP error status: the
+// error, and the answer's body.
+func failGet(body string) Getter {
+	return func(context.Context, string) ([]byte, error) {
+		return []byte(body), errors.New("HTTP 400 (chrome_like client)")
+	}
+}
+
+func TestRateLimited(t *testing.T) {
+	se, gh := ForURL("https://superuser.com/q/42"), ForPage("https://github.com/a/b/issues/2", []byte(`<div data-testid="issue-timeline-load-more">`))
+	for _, tc := range []struct {
+		name    string
+		r       *Route
+		body    string
+		limited bool
+		want    string
+	}{
+		{"SE throttle", se, `{"error_id":502,"error_message":"too many requests from this IP, more requests available in 82626 seconds","error_name":"throttle_violation"}`, true, "more requests available in 82626 seconds"},
+		{"SE bad site", se, `{"error_id":400,"error_message":"site is required","error_name":"bad_parameter"}`, false, "site is required"},
+		{"SE no JSON", se, `<html>Bad request</html>`, false, "HTTP 400"},
+		{"GitHub primary", gh, `{"message":"API rate limit exceeded for 203.0.113.9. (But here's the good news: Authenticated requests get a higher rate limit.)"}`, true, "HTTP 400"},
+		{"GitHub secondary", gh, `{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`, true, "HTTP 400"},
+		{"GitHub other", gh, `{"message":"Not Found"}`, false, "HTTP 400"},
+	} {
+		_, err := tc.r.Read(t.Context(), failGet(tc.body))
+		if err == nil || errors.Is(err, ErrRateLimited) != tc.limited || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "203.0.113.9") {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+}
+
 const seAPI = "https://api.stackexchange.com/2.3/questions/42?site=superuser.com&filter=%21%29PiAlwRxgCI.Y8TjE4%28kd0i%28uOnH4D6lbuV0GICG8wNXvaML4iKA"
 
 func TestStackExchange(t *testing.T) {
