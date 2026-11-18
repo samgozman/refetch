@@ -151,6 +151,22 @@ func TestChallenge(t *testing.T) {
 	}
 }
 
+func TestErrorBody(t *testing.T) {
+	const u = "https://api.example.com/q"
+	throttle := `{"error_name":"throttle_violation"}`
+	f := &Fetcher{Impersonate: ImpersonateOff, plain: fake(map[string]page{u: {status: 400, body: throttle, ct: "application/json"}}, nil)}
+	p, err := f.Get(t.Context(), u)
+	if err == nil || p.Body != nil || string(p.ErrorBody) != throttle {
+		t.Errorf("HTTP 400: %v, body %q, error body %q", err, p.Body, p.ErrorBody)
+	}
+	f.plain = fake(map[string]page{u: {status: 403, body: "rate limit"}}, nil)
+	f.chrome = fake(map[string]page{u: {status: 200, body: "<html><body>" + strings.Repeat("ok ", 200) + "</body></html>"}}, nil)
+	f.Impersonate = ImpersonateFallback
+	if p, err = f.Get(t.Context(), u); err != nil || p.ErrorBody != nil {
+		t.Errorf("a later success drops the error body: %v, %q", err, p.ErrorBody)
+	}
+}
+
 func TestRejectsNonHTTP(t *testing.T) {
 	f := &Fetcher{}
 	for _, u := range []string{"file:///etc/passwd", "ftp://example.com/x", "example.com", ""} {
