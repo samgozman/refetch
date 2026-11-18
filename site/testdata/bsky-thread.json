@@ -1,0 +1,236 @@
+{
+ "thread": [
+  {
+   "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q",
+   "depth": -1,
+   "value": {
+    "post": {
+     "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q",
+     "author": {
+      "did": "did:plc:4ewnpnebeh7zuk5pbardaxqz",
+      "handle": "flavorflav.bsky.social",
+      "displayName": "FLAVOR FLAV ⏰"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-13T21:27:19.583Z",
+      "text": "Ground stop will be “multiple hours” \n\nThis has been Flavor Flav from the Atlanta Airport. And now to Chuck D from JFK."
+     },
+     "embed": {
+      "record": {
+       "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27ufkokmk2p",
+       "author": {
+        "did": "did:plc:4ewnpnebeh7zuk5pbardaxqz",
+        "handle": "flavorflav.bsky.social",
+        "displayName": "FLAVOR FLAV ⏰"
+       },
+       "value": {
+        "$type": "app.bsky.feed.post",
+        "createdAt": "2026-11-13T20:51:19.056Z",
+        "text": "Nationwide ground stop on all flights in the US."
+       },
+       "likeCount": 13633,
+       "replyCount": 383,
+       "repostCount": 1776,
+       "quoteCount": 971,
+       "embeds": [],
+       "$type": "app.bsky.embed.record#viewRecord"
+      },
+      "$type": "app.bsky.embed.record#view"
+     },
+     "replyCount": 454,
+     "repostCount": 4425,
+     "likeCount": 25112,
+     "quoteCount": 467
+    },
+    "moreParents": false,
+    "moreReplies": 0,
+    "opThread": true,
+    "$type": "app.bsky.unspecced.defs#threadItemPost"
+   }
+  },
+  {
+   "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3n27xkiekss24",
+   "depth": 0,
+   "value": {
+    "post": {
+     "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3n27xkiekss24",
+     "author": {
+      "did": "did:plc:z72i7hdynmk6r22z27h6tvur",
+      "handle": "bsky.app",
+      "displayName": "Bluesky"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-13T21:47:45.632Z",
+      "reply": {
+       "parent": {
+        "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q"
+       },
+       "root": {
+        "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q"
+       }
+      },
+      "text": "thank you for your on-the-ground reporting, Flavor Flav"
+     },
+     "replyCount": 4,
+     "repostCount": 38,
+     "likeCount": 1644,
+     "quoteCount": 6
+    },
+    "moreParents": false,
+    "moreReplies": 0,
+    "opThread": false,
+    "$type": "app.bsky.unspecced.defs#threadItemPost"
+   }
+  },
+  {
+   "uri": "at://did:plc:npim427qrm7unrrvzm6vq2yc/app.bsky.feed.post/3n27xplijus2b",
+   "depth": 1,
+   "value": {
+    "post": {
+     "uri": "at://did:plc:npim427qrm7unrrvzm6vq2yc/app.bsky.feed.post/3n27xplijus2b",
+     "author": {
+      "did": "did:plc:npim427qrm7unrrvzm6vq2yc",
+      "handle": "pittbaster.bsky.social",
+      "displayName": "Ben Plume"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-13T21:50:36.680Z",
+      "reply": {
+       "parent": {
+        "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3n27xkiekss24"
+       },
+       "root": {
+        "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q"
+       }
+      },
+      "text": "At the moment “on the ground” is the only place he *can* do reporting."
+     },
+     "replyCount": 5,
+     "repostCount": 10,
+     "likeCount": 547,
+     "quoteCount": 0
+    },
+    "moreParents": false,
+    "moreReplies": 2,
+    "opThread": false,
+    "$type": "app.bsky.unspecced.defs#threadItemPost"
+   }
+  },
+  {
+   "uri": "at://did:plc:fz535iapymad3eccp3vjrpoi/app.bsky.feed.post/3n27xrcye2c2t",
+   "depth": 2,
+   "value": {
+    "post": {
+     "uri": "at://did:plc:fz535iapymad3eccp3vjrpoi/app.bsky.feed.post/3n27xrcye2c2t",
+     "author": {
+      "did": "did:plc:fz535iapymad3eccp3vjrpoi",
+      "handle": "jgshanks.bsky.social",
+      "displayName": "John Shanks"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-13T21:51:34.869Z",
+      "reply": {
+       "parent": {
+        "uri": "at://did:plc:npim427qrm7unrrvzm6vq2yc/app.bsky.feed.post/3n27xplijus2b"
+       },
+       "root": {
+        "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q"
+       }
+      },
+      "text": "Nice."
+     },
+     "replyCount": 0,
+     "repostCount": 0,
+     "likeCount": 39,
+     "quoteCount": 0
+    },
+    "moreParents": false,
+    "moreReplies": 0,
+    "opThread": false,
+    "$type": "app.bsky.unspecced.defs#threadItemPost"
+   }
+  },
+  {
+   "uri": "at://did:plc:6irylomud4saesa5cgv3qnd4/app.bsky.feed.post/3n27ze45da22g",
+   "depth": 2,
+   "value": {
+    "post": {
+     "uri": "at://did:plc:6irylomud4saesa5cgv3qnd4/app.bsky.feed.post/3n27ze45da22g",
+     "author": {
+      "did": "did:plc:6irylomud4saesa5cgv3qnd4",
+      "handle": "ryanwritesgood.bsky.social",
+      "displayName": "Ryan and his Riverbrook Lake Farms Heritage Turkey"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-13T22:19:58.969Z",
+      "reply": {
+       "parent": {
+        "uri": "at://did:plc:npim427qrm7unrrvzm6vq2yc/app.bsky.feed.post/3n27xplijus2b"
+       },
+       "root": {
+        "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q"
+       }
+      },
+      "text": ""
+     },
+     "embed": {
+      "external": {
+       "uri": "https://static.klipy.com/ii/d6b0ce929193df3c242ac34b5654d2ce/67/b4/MGWMyEfB.gif?hh=258&ww=444&mp4=8C1XYpDN4u7RzaQYy&webm=tT5YKFSAbMxjqqwMXF2x",
+       "title": "Ba Dum Tss Drum Roll Joke",
+       "description": "ALT: Ba Dum Tss Drum Roll Joke"
+      },
+      "$type": "app.bsky.embed.external#view"
+     },
+     "replyCount": 0,
+     "repostCount": 0,
+     "likeCount": 8,
+     "quoteCount": 0
+    },
+    "moreParents": false,
+    "moreReplies": 0,
+    "opThread": false,
+    "$type": "app.bsky.unspecced.defs#threadItemPost"
+   }
+  },
+  {
+   "uri": "at://did:plc:q3bbdtxch45wvfxrxpblphxn/app.bsky.feed.post/3n27xuwbbx22x",
+   "depth": 1,
+   "value": {
+    "post": {
+     "uri": "at://did:plc:q3bbdtxch45wvfxrxpblphxn/app.bsky.feed.post/3n27xuwbbx22x",
+     "author": {
+      "did": "did:plc:q3bbdtxch45wvfxrxpblphxn",
+      "handle": "strictlychristo.bsky.social",
+      "displayName": "StrictlyChristo 🇺🇦🌻"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-13T21:53:35.749Z",
+      "reply": {
+       "parent": {
+        "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3n27xkiekss24"
+       },
+       "root": {
+        "uri": "at://did:plc:4ewnpnebeh7zuk5pbardaxqz/app.bsky.feed.post/3n27wfx4jdk2q"
+       }
+      },
+      "text": "Can we nominate Flav to be the Secretary of Transportation?\n\nHe couldn't do worse than that duffer, Sean Duffy! 😬"
+     },
+     "replyCount": 2,
+     "repostCount": 2,
+     "likeCount": 132,
+     "quoteCount": 0
+    },
+    "moreParents": false,
+    "moreReplies": 0,
+    "opThread": false,
+    "$type": "app.bsky.unspecced.defs#threadItemPost"
+   }
+  }
+ ]
+}

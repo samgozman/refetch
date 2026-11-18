@@ -5,6 +5,7 @@ package site
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"html"
 	"net/url"
@@ -30,7 +31,7 @@ func ForURL(raw string) *Route {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil
 	}
-	return stackExchange(u)
+	return cmp.Or(stackExchange(u), bluesky(u), medium(u))
 }
 
 // ForPage is the route for a page its markup names, read after it.
