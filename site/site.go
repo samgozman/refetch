@@ -42,7 +42,13 @@ func ForPage(raw string, body []byte) *Route {
 	if r := discourse(u, body); r != nil {
 		return r
 	}
-	return github(u, body)
+	if r := github(u, body); r != nil {
+		return r
+	}
+	if r := youtube(u, body); r != nil {
+		return r
+	}
+	return mastodon(u, body)
 }
 
 var titleTag = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
