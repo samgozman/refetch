@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:cc="http://cyber.law.harvard.edu/rss/creativeCommonsRssModule.html">
+    <channel>
+        <title><![CDATA[TDS Archive - Medium]]></title>
+        <description><![CDATA[An archive of data science, data analytics, data engineering, machine learning, and artificial intelligence writing from the former Towards Data Science Medium publication. - Medium]]></description>
+        <link>https://medium.com/data-science?source=rss----7f60cf5620c9---4</link>
+        <image>
+            <url>https://cdn-images-1.medium.com/proxy/1*TGH72Nnw24QL3iV9IOm4VA.png</url>
+            <title>TDS Archive - Medium</title>
+            <link>https://medium.com/data-science?source=rss----7f60cf5620c9---4</link>
+        </image>
+        <generator>Medium</generator>
+        <lastBuildDate>Wed, 18 Nov 2026 07:38:14 GMT</lastBuildDate>
+        <atom:link href="https://medium.com/feed/data-science" rel="self" type="application/rss+xml"/>
+        <webMaster><![CDATA[yourfriends@medium.com]]></webMaster>
+        <atom:link href="http://medium.superfeedr.com" rel="hub"/>
+        <item>
+            <title><![CDATA[ Quantifying Surprise — A Data Scientist’s Intro To Information Theory — Part 1/5: Foundations]]></title>
+            <description><![CDATA[<div class="medium-feed-item"><p class="medium-feed-image"><a href="https://medium.com/data-science/quantifying-surprise-1eb9585b6f4e?source=rss----7f60cf5620c9---4"><img src="https://cdn-images-1.medium.com/max/2048/1*Dtc2beUUgkKjHiX4Isv4Bg.jpeg" width="2048"></a></p><p class="medium-feed-snippet">Gain intuition into Information Theory and master its applications in Machine Learning and Data Analysis. Python code provided. &#x1F40D;</p><p class="medium-feed-link"><a href="https://medium.com/data-science/quantifying-surprise-1eb9585b6f4e?source=rss----7f60cf5620c9---4">Continue reading on TDS Archive »</a></p></div>]]></description>
+            <link>https://medium.com/data-science/quantifying-surprise-1eb9585b6f4e?source=rss----7f60cf5620c9---4</link>
+            <guid isPermaLink="false">https://medium.com/p/1eb9585b6f4e</guid>
+            <category><![CDATA[statistics]]></category>
+            <category><![CDATA[information-theory]]></category>
+            <category><![CDATA[editors-pick]]></category>
+            <category><![CDATA[machine-learning]]></category>
+            <category><![CDATA[data-science]]></category>
+            <dc:creator><![CDATA[Eyal Kazin PhD]]></dc:creator>
+            <pubDate>Mon, 03 Feb 2025 12:02:06 GMT</pubDate>
+            <atom:updated>2025-07-13T19:03:27.541Z</atom:updated>
+        </item>
+        <item>
+            <title><![CDATA[Deep Dive into WebSockets and Their Role in Client-Server Communication]]></title>
+            <link>https://medium.com/data-science/deep-dive-into-websockets-and-their-role-in-client-server-communication-aac387e10cb6?source=rss----7f60cf5620c9---4</link>
+            <guid isPermaLink="false">https://medium.com/p/aac387e10cb6</guid>
+            <category><![CDATA[software-development]]></category>
+            <category><![CDATA[system-design-concepts]]></category>
+            <category><![CDATA[websocket]]></category>
+            <category><![CDATA[client-server-model]]></category>
+            <category><![CDATA[getting-started]]></category>
+            <dc:creator><![CDATA[clara]]></dc:creator>
+            <pubDate>Mon, 03 Feb 2025 11:02:00 GMT</pubDate>
+            <atom:updated>2025-02-03T11:02:00.167Z</atom:updated>
+            <content:encoded><![CDATA[<h4>How WebSockets work, its tradeoffs, and how to design a real time messaging app</h4><figure><img alt="" src="https://cdn-images-1.medium.com/max/1024/1*HzsgZYLeeRwRNm5gbwQWrg.jpeg" /><figcaption>Image by <a href="https://unsplash.com/@kellysikkema">Kelly</a> from <a href="https://unsplash.com/">Unsplash</a></figcaption></figure><p>Real-time communication is everywhere — live chatbots, data streams, or instant messaging. WebSockets are a powerful enabler of this, but when should you use them? How do they work, and how do they differ from traditional HTTP requests?</p><p>This article was inspired by a recent system design interview — “design a real time messaging app” — where I stumbled through some concepts. Now that I’ve dug deeper, I’d like to share what I’ve learned so you can avoid the same mistakes.</p><p>In this article, we’ll explore how WebSockets fit into the bigger picture of client‑server communication. We’ll discuss what they do well, where they fall short, and — yes — how to design a real‑time messaging app.</p><h3>Client-server communication</h3><p>At its core, client-server communication is the exchange of data between two entities: a client and a server.</p><p>The client requests for data, and the server processes these requests and returns a response. These roles are not exclusive — services can act as both a client and a server simultaneously, depending on the context.</p><p>Before diving into the details of WebSockets, let’s take a step back and explore the bigger picture of client-server communication methods.</p><pre>GET /chat HTTP/1.1<br>Host: server.example.com<br>Upgrade: websocket<br>Connection: Upgrade<br>Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==<br>Origin: http://example.com<br>Sec-WebSocket-Protocol: chat, superchat<br>Sec-WebSocket-Version: 13</pre><ul><li>Upgrade — signals the request to switch the protocol</li><li>Sec-WebSocket-Key — Randomly generated, base64 encoded string used for handshake verification</li><li>Sec-WebSocket-Protocol (optional) — Lists subprotocols the client supports, allowing the server to pick one.</li></ul><p><strong>2. Server responds to resquest</strong></p><p>If the server supports WebSockets and agrees to the upgrade, it responds with a <strong>101 Switching Protocols</strong> status. Example headers:</p><hr><p><a href="https://medium.com/data-science/deep-dive-into-websockets-and-their-role-in-client-server-communication-aac387e10cb6">Deep Dive into WebSockets and Their Role in Client-Server Communication</a> was originally published in <a href="https://medium.com/data-science">TDS Archive</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>]]></content:encoded>
+        </item>
+    </channel>
+</rss>
