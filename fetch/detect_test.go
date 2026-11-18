@@ -3,6 +3,7 @@ package fetch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,13 @@ func TestDetectFixtures(t *testing.T) {
 	}
 	if !Challenge(202, nil) {
 		t.Error("an empty 202 to a GET is a challenge")
+	}
+	article := []byte(`<html><head><title>Is Google Making Us Stupid?</title></head><body><article><p>` +
+		strings.Repeat("Over the past few years I've had an uncomfortable sense that someone has been tinkering with my brain. ", 30) +
+		`</p></article><script>(function(){var s=document.createElement('script');s.src='/cdn-cgi/challenge-platform/scripts/precursor/main.js';` +
+		`document.head.appendChild(s);})();</script><script src="/_Incapsula_Resource?SWJIYLWA=abc"></script></body></html>`)
+	if Challenge(200, article) {
+		t.Error("an article with a bot manager's injected script is a challenge")
 	}
 	rendered := []byte(`<html><body><div id="root"><h1>Secret word: elder</h1><p>Rendered after load.</p></div><script>render()</script></body></html>`)
 	if EmptyRendered(rendered) || !EmptyRendered([]byte(`<html><body><div id="root"></div><script>x()</script></body></html>`)) {

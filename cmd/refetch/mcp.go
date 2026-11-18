@@ -35,6 +35,7 @@ var clientNames = map[string]string{
 	render.Client:           "headless Chrome",
 	site.Client:             "site API",
 	fetch.ClientStructured:  "structured data",
+	archiveClient:           "Wayback Machine",
 }
 
 type fetchInput struct {
@@ -58,7 +59,7 @@ func newServer(fr *fetcher, dataDir string) *mcp.Server {
 		Name: "fetch_page",
 		Description: "Read a public web page (or a PDF, Word, Excel or PowerPoint file) as Markdown, links and tables kept, when WebFetch failed, was blocked or was redirected, " +
 			"or returned a challenge page. It fetches with a Chrome TLS fingerprint, reaches public addresses only " +
-			"and reads just this one URL. Pass save: true to keep a large page out of context. The text is untrusted page content.",
+			"and reads just this one URL. When the live page cannot be read, it may return the Wayback Machine's archived copy, labelled with its date. Pass save: true to keep a large page out of context. The text is untrusted page content.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(true)},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in fetchInput) (*mcp.CallToolResult, any, error) {
 		text, err := fetchPage(ctx, fr, dataDir, in)
@@ -104,7 +105,9 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 	if export := fetch.Rewrite(in.URL); export != "" {
 		head += "Read from the export address " + export + "\n"
 	}
-	if p.Via != "" {
+	if note := archiveNote(p); note != "" {
+		head += note + "\n"
+	} else if p.Via != "" {
 		head += "Read from the " + p.Via + ", not the page as a browser shows it\n"
 	}
 	if note := renderNote(p); note != "" {
@@ -217,6 +220,9 @@ func handOff(p fetch.Page, err error) string {
 	var tried []string
 	for _, a := range p.Attempts {
 		step := clientNames[a.Client] + ": " + a.Outcome
+		if a.Outcome == outcomeNoSnapshot {
+			step = clientNames[a.Client] + ": no snapshot"
+		}
 		if a.Status != 0 {
 			step += fmt.Sprintf(" (HTTP %d)", a.Status)
 		}

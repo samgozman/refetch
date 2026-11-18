@@ -14,6 +14,7 @@ var clientNames = map[string]string{
 	"plain":        "plain client",
 	"plain_backup": "plain backup",
 	"headless":     "headless Chrome",
+	"wayback":      "Wayback Machine",
 }
 
 // Header is context outside the report data.
@@ -87,6 +88,11 @@ func (r Report) WriteText(w io.Writer, h Header) {
 			skipped += fmt.Sprintf(" · root %d", hd.SkippedRoot)
 		}
 		line(1, "skipped", hd.SkippedByCall+hd.SkippedOff+hd.NoChrome+hd.SkippedRoot, skipped)
+	}
+
+	if w := r.Wayback; w.Ran > 0 {
+		p("\n")
+		line(0, "Wayback Machine step (live page failed)", w.Ran, fmt.Sprintf("read %d · no snapshot %d · failed %d", w.OK, w.NoSnapshot, w.Failed))
 	}
 
 	if len(r.Hosts) > 0 {

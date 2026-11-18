@@ -49,6 +49,7 @@ func TestDoctor(t *testing.T) {
 		"! updates      refetch 1.2.3 is out of date; the latest release is 1.4.0",
 		"✓ permission   fetch_page is allowed",
 		"! chrome       no Chrome or Chromium found",
+		"✓ archive      a page refetch cannot read is looked up at the Wayback Machine",
 		"plugin context-mode@context-mode: PreToolUse on WebFetch (denies WebFetch",
 		"~/.claude/settings.json: PostToolUse on WebFetch (RTK)",
 	} {

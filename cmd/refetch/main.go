@@ -132,6 +132,7 @@ type fetcher struct {
 	f         pageGetter   // the HTTP clients
 	r         renderer     // the headless Chrome step
 	renderOff bool         // render = "off"
+	archive   bool         // archive = "wayback"; off in the zero value
 	st        *store.Store // nil when stats are off or the store could not open
 	via       string
 	stderr    io.Writer // where recording errors go (the MCP server's log)
@@ -169,6 +170,7 @@ func newFetcherWith(cfg config.Config, st *store.Store, via string, stderr io.Wr
 		f:         pagesFor(cfg),
 		r:         &render.Renderer{Timeout: cfg.RenderTimeout.Duration},
 		renderOff: cfg.Render == "off",
+		archive:   cfg.Archive == "wayback",
 		st:        st, via: via, stderr: stderr,
 	}
 }
@@ -195,13 +197,17 @@ const (
 // get fetches one page: the HTTP clients first, then the headless Chrome
 // step when they got a challenge or a JavaScript-only page, or always with
 // renderAlways. A host that recently needed headless Chrome every time
-// goes to it first. All attempts are recorded under one fetch id.
+// goes to it first; a page none of them read, to the Wayback Machine. All
+// attempts are recorded under one fetch id.
 func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
 	if !fetch.IsWebURL(url) {
 		return fetch.Page{}, fmt.Errorf("not an http(s) URL: %q", url)
 	}
 	url = cmp.Or(fetch.Rewrite(url), url)
 	p, err := fr.read(ctx, url, mode)
+	if fr.archiveWorthy(ctx, url, p, err) {
+		p, err = fr.viaArchive(ctx, url, p, err)
+	}
 	if fr.st != nil {
 		id := uuid.New().String()
 		for _, a := range p.Attempts {
