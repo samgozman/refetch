@@ -90,6 +90,59 @@ func TestStructuredFallback(t *testing.T) {
 	}
 }
 
+// shellSite returns a JavaScript-only shell for page and the API answers
+// for their exact URLs; others are a 404.
+type shellSite struct {
+	page, shell string
+	api         map[string]string
+	urls        []string
+}
+
+func (f *shellSite) Get(ctx context.Context, u string) (fetch.Page, error) {
+	f.urls = append(f.urls, u)
+	if u == f.page {
+		return shellPages{shell: f.shell}.Get(ctx, u)
+	}
+	if body, ok := f.api[u]; ok {
+		return okPage(body), nil
+	}
+	a := fetch.Attempt{URL: u, Client: fetch.ClientChromeLike, Outcome: fetch.OutcomeError, Status: 404}
+	return fetch.Page{Last: a, Attempts: []fetch.Attempt{a}}, errors.New("HTTP 404 (chrome_like client)")
+}
+
+func TestShellRoute(t *testing.T) {
+	const u, api = "https://social.example/@ada/7", "https://social.example/api/v1/statuses/7"
+	app := `<html><script id="initial-state" type="application/json">{}</script><div id="mastodon">`
+	fp := &shellSite{page: u, shell: app + `</div></html>`, api: map[string]string{
+		api:              `{"id":"7","content":"<p>Hello from the API.</p>","account":{"acct":"ada"}}`,
+		api + "/context": `{"ancestors":[],"descendants":[]}`,
+	}}
+	rr := &fakeRenderer{dom: app + `<p>` + strings.Repeat("Hello from the rendered page. ", 10) + `</p></div></html>`}
+	fr := &fetcher{f: fp, r: rr}
+	p, err := fr.get(t.Context(), u, renderNever)
+	if err != nil || p.Via != "Mastodon API" || !strings.Contains(string(p.Body), "Hello from the API.") || rr.calls != 0 ||
+		len(p.Attempts) != 2 || p.Attempts[0].Outcome != fetch.OutcomeNeedsJS {
+		t.Errorf("the shell's route, no headless Chrome: %v, %+v\n%s", err, p.Attempts, p.Body)
+	}
+	delete(fp.api, api+"/context")
+	fp.urls = nil
+	p, err = fr.get(t.Context(), u, renderAuto)
+	if err != nil || p.Via != "" || !strings.Contains(string(p.Body), "Hello from the rendered page.") || rr.calls != 1 ||
+		len(p.Attempts) != 3 || p.Attempts[1].Client != site.Client || p.Attempts[2].Client != render.Client || len(fp.urls) != 3 {
+		t.Errorf("a failed route goes on to headless Chrome, and not again on its render: %v, %+v, %v", err, p.Attempts, fp.urls)
+	}
+	if _, err := fr.get(t.Context(), u, renderAlways); err != nil || rr.calls != 2 {
+		t.Errorf("render: true reads the page itself: %v", err)
+	}
+
+	const video = "https://www.youtube.com/watch?v=abcdefghijk"
+	fp.page, fp.shell = video, `<script>var ytInitialPlayerResponse = {"videoDetails":{"videoId":"abcdefghijk","title":"A talk","shortDescription":"All about it."}};</script>`
+	out, err := fetchPage(t.Context(), fr, t.TempDir(), fetchInput{URL: video})
+	if err != nil || !strings.Contains(out, "(site API)") || !strings.Contains(out, "Read from the YouTube page data") || !strings.Contains(out, "All about it.") || rr.calls != 2 {
+		t.Errorf("YouTube: %v\n%s", err, out)
+	}
+}
+
 func TestThinNote(t *testing.T) {
 	long := strings.Repeat("A full answer with its steps and context. ", 60)
 	for text, want := range map[string]string{

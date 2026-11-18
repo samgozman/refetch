@@ -215,7 +215,8 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 // read runs the steps for one page: a site's API for a page its address
 // names (a Stack Exchange question), else the HTTP clients and headless
 // Chrome, then a site's API for a page its markup names (a Discourse
-// topic). render: true goes to the page itself.
+// topic). A JavaScript-only page's markup is tried before headless Chrome
+// (a Mastodon instance). render: true goes to the page itself.
 func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
 	var tried []fetch.Attempt
 	if r := site.ForURL(url); r != nil && mode != renderAlways {
@@ -227,10 +228,20 @@ func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch
 	}
 	var p fetch.Page
 	var err error
+	pageRoute := mode != renderAlways
 	if mode == renderAuto && fr.remembered(ctx, url) {
 		p, err = fr.renderFirst(ctx, url)
 	} else {
 		p, err = fr.f.Get(ctx, url)
+		if r := shellRoute(url, p, pageRoute); r != nil {
+			sp, ok := fr.viaSite(ctx, url, r, p)
+			if ok {
+				sp.Attempts = append(tried, sp.Attempts...)
+				return sp, nil
+			}
+			// Not again on headless Chrome's render of the same page.
+			p.Attempts, pageRoute = sp.Attempts, false
+		}
 		switch o := p.Last.Outcome; {
 		case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
 			mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
@@ -243,13 +254,21 @@ func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch
 			return sp, nil
 		}
 	}
-	if err == nil && mode != renderAlways && strings.Contains(p.ContentType, "html") {
+	if err == nil && pageRoute && strings.Contains(p.ContentType, "html") {
 		if r := site.ForPage(cmp.Or(p.URL, url), p.Body); r != nil {
 			sp, _ := fr.viaSite(ctx, url, r, p)
 			return sp, nil
 		}
 	}
 	return p, err
+}
+
+// shellRoute is the site route a JavaScript-only page's markup names.
+func shellRoute(url string, p fetch.Page, allowed bool) *site.Route {
+	if !allowed || p.Last.Outcome != fetch.OutcomeNeedsJS || p.Shell == nil {
+		return nil
+	}
+	return site.ForPage(cmp.Or(p.URL, url), p.Shell)
 }
 
 // structuredPage reads a JavaScript-only page that headless Chrome did not
