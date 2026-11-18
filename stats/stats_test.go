@@ -153,3 +153,35 @@ func TestRememberedHostWin(t *testing.T) {
 		t.Errorf("text:\n%s", buf.String())
 	}
 }
+
+func TestWaybackStep(t *testing.T) {
+	t0 := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	step := func(s int, id, u, client, outcome string, status int) store.Attempt {
+		return store.Attempt{Time: t0.Add(time.Duration(s) * time.Second), FetchID: id, URL: u, Host: "x.com", Client: client, Outcome: outcome, Status: status}
+	}
+	calls := []store.ToolCall{
+		{Time: t0, SessionID: "s", Tool: "WebFetch", URL: "https://x.com/a", Host: "x.com", Outcome: store.CallFailed},
+		{Time: t0.Add(10 * time.Second), SessionID: "s", Tool: fp, URL: "https://x.com/a", Host: "x.com", Outcome: store.CallOK},
+		{Time: t0.Add(20 * time.Second), SessionID: "s", Tool: "WebFetch", URL: "https://x.com/b", Host: "x.com", Outcome: store.CallFailed},
+		{Time: t0.Add(30 * time.Second), SessionID: "s", Tool: fp, URL: "https://x.com/b", Host: "x.com", Outcome: store.CallFailed},
+	}
+	attempts := []store.Attempt{
+		step(8, "a", "https://x.com/a", "chrome_like", "refused", 403), step(9, "a", "https://x.com/a", "wayback", "ok", 200),
+		step(28, "b", "https://x.com/b", "chrome_like", "error", 404), step(29, "b", "https://x.com/b", "wayback", "no_snapshot", 200),
+		step(40, "c", "https://x.com/c", "chrome_like", "timeout", 0), step(41, "c", "https://x.com/c", "wayback", "timeout", 0),
+	}
+	r := Build(calls, attempts, Options{Since: t0}, t0.Add(time.Minute))
+	if r.ResolvedBy["wayback"] != 1 || r.FailedWhy["HTTP 404"] != 1 || r.Fetches.FailedBy["timeout"] != 1 {
+		t.Errorf("resolved by %v, still failed by %v, fetches %+v", r.ResolvedBy, r.FailedWhy, r.Fetches)
+	}
+	if want := (Wayback{Ran: 3, OK: 1, NoSnapshot: 1, Failed: 1}); r.Wayback != want {
+		t.Errorf("wayback = %+v, want %+v", r.Wayback, want)
+	}
+	var buf bytes.Buffer
+	r.WriteText(&buf, Header{Version: "dev"})
+	for _, s := range []string{"Wayback Machine", "Wayback Machine step (live page failed)", "read 1 · no snapshot 1 · failed 1"} {
+		if !strings.Contains(buf.String(), s) {
+			t.Errorf("text lacks %q:\n%s", s, buf.String())
+		}
+	}
+}
