@@ -1,19 +1,9 @@
 package site
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
-
-func testdata(t *testing.T, name string) string {
-	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
 
 const msAPI = "https://mastodon.social/api/v1/"
 

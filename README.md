@@ -192,6 +192,40 @@ Some sites serve the same public content better through their own API, and
   date, where the page shows a browser only the first posts.
 - GitHub issues and pull requests whose page hides comments behind "Load
   more" come from the REST API (60 anonymous requests an hour).
+- Bluesky profiles and posts come from Bluesky's public API, as the page is
+  an empty JavaScript app for signed-out readers. A profile comes with its
+  bio, counts and about 30 recent posts; a post with the posts it replies
+  to and its replies, the author's own thread first. Posts show their date,
+  counts, full links, image alt text and quoted posts. Accounts that show
+  their posts only to signed-in users stay hidden.
+- Mastodon profiles and posts, on any instance, come from that instance's
+  REST API instead of its JavaScript app: a profile with its recent posts,
+  a post with the posts it replies to and its replies, content warnings,
+  media descriptions and boosts included. An instance that refuses
+  anonymous API access gets its page read as before.
+- YouTube videos are read from the player data the watch page carries:
+  title, channel, date, duration, views, category, keywords and the full
+  description with its timestamps. No extra request is made. Transcripts
+  are not included, as YouTube serves captions only with a token refetch
+  does not have.
+- Medium posts come from the author's or publication's RSS feed, as Medium's
+  pages challenge automated readers. The feed holds the full text of only
+  the newest posts, about ten; for an older or member-only post, or a
+  `medium.com/p/…` address, refetch reads the page as before.
+
+When a site's API says refetch has used up its quota (HTTP 429, a Stack
+Exchange throttle or GitHub's rate-limit message), refetch leaves that API
+alone for an hour and reads the page instead. The pause lasts as long as
+the MCP server, one Claude Code session. A JavaScript-only page whose markup
+names one of these sites (a Mastodon instance) goes to the site's API
+before headless Chrome.
+
+When a page loads but is not the content, the result starts with a note: a
+short page that is mostly a login form, a page whose title or main heading
+says it does not exist (a "soft 404" sent with HTTP 200), or the signed-out
+view of X, Instagram, Facebook, Threads, TikTok and LinkedIn, which may lack
+the posts, comments and full profiles that need a signed-in browser. The
+page text still comes back.
 
 Pages that put their content in `<noscript>` (Discourse lists) or keep it
 hidden until a script shows it (Zendesk help articles) are read from there

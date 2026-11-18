@@ -3,9 +3,20 @@ package site
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
+
+// testdata is a fixture file's text.
+func testdata(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
 
 // fakeGet answers from a map of URL to body; other URLs fail.
 func fakeGet(pages map[string]string, asked *[]string) Getter {

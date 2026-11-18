@@ -3,7 +3,6 @@ package site
 import (
 	"encoding/json/v2"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
@@ -14,15 +13,6 @@ const (
 	bskyThreadAPI  = bskyAPI + "app.bsky.unspecced.getPostThreadV2?anchor=at%3A%2F%2Fbsky.app%2Fapp.bsky.feed.post%2F3n27xkiekss24&below=10&branchingFactor=3&sort=top"
 	bskyPostURL    = "https://bsky.app/profile/bsky.app/post/3n27xkiekss24"
 )
-
-func testdata(t *testing.T, name string) string {
-	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
 
 func TestBlueskyURLs(t *testing.T) {
 	for raw, want := range map[string]bool{
