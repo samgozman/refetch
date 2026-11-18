@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"fmt"
+	"iter"
 	"net/url"
 	"strings"
 
@@ -30,18 +31,28 @@ func Structured(body []byte, page *url.URL) string {
 
 func structured(doc *html.Node, page *url.URL) string {
 	s := &ldWriter{page: page}
-	for n := range doc.Descendants() {
-		if n.Type == html.ElementNode && n.DataAtom == atom.Script && strings.EqualFold(attr(n, "type"), "application/ld+json") && n.FirstChild != nil {
-			var v any
-			if json.Unmarshal([]byte(n.FirstChild.Data), &v) == nil {
-				s.walk(v, 0)
-			}
-		}
+	for v := range jsonLD(doc) {
+		s.walk(v, 0)
 	}
 	if s.text < minTrimmed {
 		return ""
 	}
 	return StructuredLabel + "\n\n" + strings.TrimSpace(s.b.String())
+}
+
+// jsonLD yields the value of each JSON-LD script of a parsed page that
+// parses.
+func jsonLD(doc *html.Node) iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for n := range doc.Descendants() {
+			if n.Type == html.ElementNode && n.DataAtom == atom.Script && strings.EqualFold(attr(n, "type"), "application/ld+json") && n.FirstChild != nil {
+				var v any
+				if json.Unmarshal([]byte(n.FirstChild.Data), &v) == nil && !yield(v) {
+					return
+				}
+			}
+		}
+	}
 }
 
 // ldWriter writes the posts it finds; text counts their characters.
@@ -148,12 +159,18 @@ func (s *ldWriter) markdown(t string) string {
 }
 
 func isType(n map[string]any, types ...string) bool {
+	return hasType(n, func(t string) bool { return containsFold(types, t) })
+}
+
+// hasType reports a node with an @type, one or one of a list, that match
+// accepts.
+func hasType(n map[string]any, match func(string) bool) bool {
 	switch t := n["@type"].(type) {
 	case string:
-		return containsFold(types, t)
+		return match(t)
 	case []any:
 		for _, e := range t {
-			if s, ok := e.(string); ok && containsFold(types, s) {
+			if s, ok := e.(string); ok && match(s) {
 				return true
 			}
 		}
