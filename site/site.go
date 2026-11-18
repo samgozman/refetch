@@ -53,6 +53,9 @@ func ForPage(raw string, body []byte) *Route {
 	if r := youtube(u, body); r != nil {
 		return r
 	}
+	if r := bloomberg(u, body); r != nil {
+		return r
+	}
 	return mastodon(u, body)
 }
 
