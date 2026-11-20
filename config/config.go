@@ -28,6 +28,7 @@ type Config struct {
 	Mode          string   `toml:"mode"`           // nudge or inline (hook response)
 	UserAgent     string   `toml:"user_agent"`     // the plain client's User-Agent; empty = refetch/<version>
 	UseProxy      bool     `toml:"use_proxy"`      // connect through HTTPS_PROXY; a TLS-decrypting one replaces the Chrome handshake
+	Archive       string   `toml:"archive"`        // wayback or off: look a page that cannot be read up at archive.org
 }
 
 // Duration is a time.Duration written as "10s" in TOML and env vars.
@@ -55,6 +56,7 @@ func Default() Config {
 		Timeout:       Duration{20 * time.Second},
 		Stats:         true,
 		Mode:          "nudge",
+		Archive:       "wayback",
 	}
 }
 
@@ -110,6 +112,7 @@ func (c *Config) applyEnv(getenv func(string) string) error {
 		"REFETCH_RENDER":      &c.Render,
 		"REFETCH_MODE":        &c.Mode,
 		"REFETCH_USER_AGENT":  &c.UserAgent,
+		"REFETCH_ARCHIVE":     &c.Archive,
 	}
 	for k, p := range strs {
 		if v := getenv(k); v != "" {
@@ -149,6 +152,7 @@ func (c Config) Validate() error {
 	check("impersonate", c.Impersonate, "always", "fallback", "off")
 	check("render", c.Render, "auto", "off")
 	check("mode", c.Mode, "nudge", "inline")
+	check("archive", c.Archive, "wayback", "off")
 	if c.Timeout.Duration <= 0 || c.RenderTimeout.Duration <= 0 {
 		errs = append(errs, errors.New("timeout and render_timeout must be positive"))
 	}

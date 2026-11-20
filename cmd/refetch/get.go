@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -58,7 +59,7 @@ func runGet(ctx context.Context, cfg config.Config, args []string, stdout, stder
 		}
 		return err
 	}
-	if note := renderNote(p); note != "" {
+	if note := cmp.Or(archiveNote(p), renderNote(p)); note != "" {
 		_, _ = fmt.Fprintln(stderr, note)
 	}
 	if note := pageNote(p, fs.Arg(0), pageText(p, fs.Arg(0), *format, *fullPage)); note != "" {

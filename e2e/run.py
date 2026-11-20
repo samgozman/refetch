@@ -108,7 +108,7 @@ def main():
             if data.exists():
                 shutil.rmtree(data)
             env = {**os.environ, "REFETCH_BIN": str(build / "refetch-e2e"), "REFETCH_DATA": str(data),
-                   "REFETCH_CONFIG": str(out / "none.toml"), "NODE_EXTRA_CA_CERTS": str(ca)}
+                   "REFETCH_CONFIG": str(out / "none.toml"), "REFETCH_ARCHIVE": "off", "NODE_EXTRA_CA_CERTS": str(ca)}
             if setup == "no-chrome":
                 env["REFETCH_CHROME"] = str(out / "no-chrome")
             cfg = settings(setup, out)

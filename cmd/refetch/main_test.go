@@ -44,7 +44,7 @@ func TestMCPTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := res.Content[0].(*mcp.TextContent).Text
-	if !res.IsError || !strings.Contains(text, "could not read http://127.0.0.1:9/x") || !strings.Contains(text, "not a public address") {
+	if !res.IsError || !strings.Contains(text, "could not read http://127.0.0.1:9/x") || !strings.Contains(text, "not a public address") || strings.Contains(text, "Wayback") {
 		t.Errorf("result = %v %q", res.IsError, text)
 	}
 }

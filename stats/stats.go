@@ -42,6 +42,7 @@ type Report struct {
 
 	Fetches  Fetches   `json:"fetches"`         // every fetch_page and refetch get, from the attempts table
 	Headless Headless  `json:"headless"`        // the headless Chrome step over all fetches
+	Wayback  Wayback   `json:"wayback"`         // the Wayback Machine step over all fetches
 	Hosts    []HostRow `json:"hosts,omitempty"` // filled for --by host
 }
 
@@ -68,6 +69,15 @@ type Headless struct {
 	NoChrome      int   `json:"no_chrome"`
 	SkippedRoot   int   `json:"skipped_root"`
 	MedianMS      int64 `json:"median_ms"` // of the runs
+}
+
+// Wayback counts the Wayback Machine step, which runs after every live step
+// failed.
+type Wayback struct {
+	Ran        int `json:"ran"`
+	OK         int `json:"ok"`
+	NoSnapshot int `json:"no_snapshot"`
+	Failed     int `json:"failed"`
 }
 
 // HostCount is a host and how often it needed refetch.
@@ -122,6 +132,7 @@ type fetch struct {
 	trigger    string // the outcome that sent the page to the headless step
 	headlessMS int64
 	last       string // the last HTTP client outcome
+	wayback    string // the Wayback Machine step's outcome; "" when it did not run
 }
 
 // stepTwoWhy names a failed headless step for the still-failed breakdown.
@@ -265,6 +276,7 @@ func (b *builder) finish(opt Options) {
 	if opt.Session == "" {
 		b.r.Fetches = summarize(b.fetches)
 		b.r.Headless = headless(b.fetches)
+		b.r.Wayback = wayback(b.fetches)
 		for _, f := range b.fetches {
 			b.row(f.host).Fetches++
 		}
@@ -291,15 +303,18 @@ func groupFetches(attempts []store.Attempt) []fetch {
 		f := &out[i]
 		f.end = a.Time
 		f.durationMS += a.Duration.Milliseconds()
-		if a.Client == "headless" {
+		switch a.Client {
+		case "headless":
 			f.headless, f.trigger, f.headlessMS = a.Outcome, cmp.Or(f.last, "remembered"), a.Duration.Milliseconds() // first: a host that needed it before
-		} else {
+		case "wayback":
+			f.wayback = a.Outcome
+		default:
 			f.last = a.Outcome
 		}
 		switch {
 		case a.Outcome == "ok":
 			f.ok, f.winner = true, a.Client
-		case f.ok:
+		case f.ok, a.Client == "wayback": // a failed lookup leaves why the live page failed
 		case a.Client == "headless":
 			f.why = cmp.Or(stepTwoWhy[a.Outcome], "step 2 failed")
 		default:
@@ -342,6 +357,24 @@ func summarize(fetches []fetch) Fetches {
 		s.MedianMS = ds[len(ds)/2]
 	}
 	return s
+}
+
+func wayback(fetches []fetch) Wayback {
+	var w Wayback
+	for _, f := range fetches {
+		switch f.wayback {
+		case "":
+			continue
+		case "ok":
+			w.OK++
+		case "no_snapshot":
+			w.NoSnapshot++
+		default:
+			w.Failed++
+		}
+		w.Ran++
+	}
+	return w
 }
 
 func headless(fetches []fetch) Headless {

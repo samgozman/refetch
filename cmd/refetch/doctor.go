@@ -42,7 +42,8 @@ func runDoctor(ctx context.Context, stdout io.Writer) error {
 	} else {
 		checks = append(checks, configCheck())
 	}
-	checks = append(checks, networkCheck(cfg, useProxy(cfg)), dataCheck(ctx, cfg), chromeCheck(ctx, cfg), env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
+	checks = append(checks, networkCheck(cfg, useProxy(cfg)), dataCheck(ctx, cfg), chromeCheck(ctx, cfg), archiveCheck(cfg),
+		env.configDirCheck(), env.permissionCheck(), env.hooksCheck())
 	for _, c := range checks {
 		mark := "✓"
 		if !c.ok {
@@ -63,6 +64,14 @@ func networkCheck(cfg config.Config, proxy string) check {
 		return check{false, "network", "use_proxy is on, but no HTTPS_PROXY is set, so connections go direct"}
 	}
 	return check{true, "network", "through the proxy at " + proxy + " (use_proxy)"}
+}
+
+func archiveCheck(cfg config.Config) check {
+	if cfg.Archive == "off" {
+		return check{true, "archive", `Wayback Machine step off (archive = "off")`}
+	}
+	return check{true, "archive", "a page refetch cannot read is looked up at the Wayback Machine (archive.org); " +
+		`archive = "off" keeps its URL from archive.org`}
 }
 
 func versionCheck() check {

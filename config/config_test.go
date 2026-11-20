@@ -17,7 +17,7 @@ func TestDefaultsWithoutFile(t *testing.T) {
 	if c != Default() {
 		t.Errorf("got %+v", c)
 	}
-	if c.Impersonate != "always" || c.Render != "auto" || !c.Stats || c.RespectRobots || c.Mode != "nudge" {
+	if c.Impersonate != "always" || c.Render != "auto" || !c.Stats || c.RespectRobots || c.Mode != "nudge" || c.Archive != "wayback" {
 		t.Errorf("defaults changed: %+v", c)
 	}
 }
@@ -46,6 +46,7 @@ func TestInvalid(t *testing.T) {
 		"bad mode":    "mode = \"loud\"\n",
 		"unknown key": "impersonat = \"off\"\n",
 		"bad dur":     "timeout = \"soon\"\n",
+		"bad archive": "archive = \"archive.today\"\n",
 	} {
 		path := filepath.Join(dir, strings.ReplaceAll(name, " ", "_")+".toml")
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -98,5 +99,25 @@ func TestUseProxyFromEnv(t *testing.T) {
 	t.Setenv("REFETCH_USE_PROXY", "true")
 	if c, err := Load(); err != nil || !c.UseProxy {
 		t.Errorf("REFETCH_USE_PROXY=true: %v", err)
+	}
+}
+
+func TestArchive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("archive = \"off\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REFETCH_CONFIG", path)
+	t.Setenv("REFETCH_ARCHIVE", "")
+	if c, err := Load(); err != nil || c.Archive != "off" {
+		t.Errorf("archive = \"off\" in the file: %+v, %v", c, err)
+	}
+	t.Setenv("REFETCH_ARCHIVE", "wayback")
+	if c, err := Load(); err != nil || c.Archive != "wayback" {
+		t.Errorf("REFETCH_ARCHIVE=wayback over the file: %+v, %v", c, err)
+	}
+	t.Setenv("REFETCH_ARCHIVE", "on")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "archive") {
+		t.Errorf("REFETCH_ARCHIVE=on accepted: %v", err)
 	}
 }
