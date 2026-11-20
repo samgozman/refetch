@@ -110,7 +110,7 @@ func fetchPage(ctx context.Context, fr *fetcher, dataDir string, in fetchInput) 
 	if note := renderNote(p); note != "" {
 		head += note + "\n"
 	}
-	if note := thinNote(text); note != "" {
+	if note := pageNote(p, in.URL, text); note != "" {
 		head += note + "\n"
 	}
 	if !in.Save {
@@ -293,7 +293,7 @@ func thinNote(text string) string {
 	n := len([]rune(text))
 	lower := strings.ToLower(text)
 	if n < 2000 && slices.ContainsFunc(loginWords, func(w string) bool { return strings.Contains(lower, w) }) {
-		return "The page asks for a login before it shows its content; refetch reads public pages only. " + browserTool
+		return loginNote
 	}
 	if n < 200 {
 		return fmt.Sprintf("The page has almost no text (%d characters): an empty app, a removed page or a wall. "+browserTool, n)

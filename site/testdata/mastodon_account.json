@@ -1,0 +1,37 @@
+{
+ "id": "13179",
+ "username": "Mastodon",
+ "acct": "Mastodon",
+ "display_name": "Mastodon",
+ "locked": false,
+ "bot": false,
+ "group": false,
+ "created_at": "2016-11-23T00:00:00.000Z",
+ "note": "<p>Our mission is to connect the world through thriving online communities.</p><p>This is the primary account for the Mastodon project.</p><p>For technical software updates, follow <span class=\"h-card\" translate=\"no\"><a href=\"https://mastodon.social/@MastodonEngineering\" class=\"u-url mention\">@<span>MastodonEngineering</span></a></span></p><p>For news and updates on the Mastodon servers that we operate (like this one!), follow <span class=\"h-card\" translate=\"no\"><a href=\"https://mastodon.social/@staff\" class=\"u-url mention\">@<span>staff</span></a></span></p>",
+ "url": "https://mastodon.social/@Mastodon",
+ "followers_count": 878824,
+ "following_count": 51,
+ "statuses_count": 568,
+ "fields": [
+  {
+   "name": "Homepage",
+   "value": "<a href=\"https://joinmastodon.org\" target=\"_blank\" rel=\"nofollow noopener me\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"\">joinmastodon.org</span><span class=\"invisible\"></span></a>",
+   "verified_at": "2018-10-31T04:11:00.076+00:00"
+  },
+  {
+   "name": "Source Code",
+   "value": "<a href=\"https://github.com/mastodon\" target=\"_blank\" rel=\"nofollow noopener me\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"\">github.com/mastodon</span><span class=\"invisible\"></span></a>",
+   "verified_at": "2023-07-21T13:27:45.996+00:00"
+  },
+  {
+   "name": "Blog",
+   "value": "<a href=\"https://blog.joinmastodon.org\" target=\"_blank\" rel=\"nofollow noopener me\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"\">blog.joinmastodon.org</span><span class=\"invisible\"></span></a>",
+   "verified_at": "2025-11-24T15:45:57.501+00:00"
+  },
+  {
+   "name": "Donate",
+   "value": "<a href=\"https://joinmastodon.org/sponsors#donate\" target=\"_blank\" rel=\"nofollow noopener me\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">joinmastodon.org/sponsors#dona</span><span class=\"invisible\">te</span></a>",
+   "verified_at": "2025-11-24T15:37:03.351+00:00"
+  }
+ ]
+}

@@ -28,7 +28,7 @@ func github(u *url.URL, body []byte) *Route {
 	return &Route{Name: "GitHub API", Read: func(ctx context.Context, get Getter) (string, error) {
 		raw, err := get(ctx, api)
 		if err != nil {
-			return "", err
+			return "", ghError(raw, err)
 		}
 		var issue ghPost
 		if err := json.Unmarshal(raw, &issue); err != nil {
@@ -43,7 +43,7 @@ func github(u *url.URL, body []byte) *Route {
 		for page := 1; page <= maxCommentPages; page++ {
 			raw, err := get(ctx, fmt.Sprintf("%s/comments?per_page=100&page=%d", api, page))
 			if err != nil {
-				return "", err
+				return "", ghError(raw, err)
 			}
 			var comments []ghPost
 			if err := json.Unmarshal(raw, &comments); err != nil {
@@ -58,6 +58,19 @@ func github(u *url.URL, body []byte) *Route {
 		}
 		return strings.TrimSpace(b.String()), nil
 	}}
+}
+
+// ghError names a spent rate limit, primary or secondary, which the API
+// answers with HTTP 403 or 429 and a message saying so. That message names
+// refetch's IP address, so only the getter's error goes on.
+func ghError(body []byte, err error) error {
+	var res struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &res) == nil && strings.Contains(strings.ToLower(res.Message), "rate limit") {
+		return fmt.Errorf("%w: %w", ErrRateLimited, err)
+	}
+	return err
 }
 
 type ghPost struct {

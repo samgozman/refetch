@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"uuid"
@@ -134,6 +135,10 @@ type fetcher struct {
 	st        *store.Store // nil when stats are off or the store could not open
 	via       string
 	stderr    io.Writer // where recording errors go (the MCP server's log)
+
+	mu       sync.Mutex
+	cooldown map[string]time.Time // API host → when refetch asks it again
+	now      func() time.Time     // the clock; time.Now when nil
 }
 
 type renderer interface {
@@ -215,7 +220,8 @@ func (fr *fetcher) get(ctx context.Context, url string, mode renderMode) (fetch.
 // read runs the steps for one page: a site's API for a page its address
 // names (a Stack Exchange question), else the HTTP clients and headless
 // Chrome, then a site's API for a page its markup names (a Discourse
-// topic). render: true goes to the page itself.
+// topic). A JavaScript-only page's markup is tried before headless Chrome
+// (a Mastodon instance). render: true goes to the page itself.
 func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch.Page, error) {
 	var tried []fetch.Attempt
 	if r := site.ForURL(url); r != nil && mode != renderAlways {
@@ -227,10 +233,20 @@ func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch
 	}
 	var p fetch.Page
 	var err error
+	pageRoute := mode != renderAlways
 	if mode == renderAuto && fr.remembered(ctx, url) {
 		p, err = fr.renderFirst(ctx, url)
 	} else {
 		p, err = fr.f.Get(ctx, url)
+		if r := shellRoute(url, p, pageRoute); r != nil {
+			sp, ok := fr.viaSite(ctx, url, r, p)
+			if ok {
+				sp.Attempts = append(tried, sp.Attempts...)
+				return sp, nil
+			}
+			// Not again on headless Chrome's render of the same page.
+			p.Attempts, pageRoute = sp.Attempts, false
+		}
 		switch o := p.Last.Outcome; {
 		case err != nil && (o == fetch.OutcomeChallenge || o == fetch.OutcomeNeedsJS),
 			mode == renderAlways && (err == nil && p.ContentType != fetch.TypeMarkdown || o == fetch.OutcomeRefused):
@@ -243,13 +259,21 @@ func (fr *fetcher) read(ctx context.Context, url string, mode renderMode) (fetch
 			return sp, nil
 		}
 	}
-	if err == nil && mode != renderAlways && strings.Contains(p.ContentType, "html") {
+	if err == nil && pageRoute && strings.Contains(p.ContentType, "html") {
 		if r := site.ForPage(cmp.Or(p.URL, url), p.Body); r != nil {
 			sp, _ := fr.viaSite(ctx, url, r, p)
 			return sp, nil
 		}
 	}
 	return p, err
+}
+
+// shellRoute is the site route a JavaScript-only page's markup names.
+func shellRoute(url string, p fetch.Page, allowed bool) *site.Route {
+	if !allowed || p.Last.Outcome != fetch.OutcomeNeedsJS || p.Shell == nil {
+		return nil
+	}
+	return site.ForPage(cmp.Or(p.URL, url), p.Shell)
 }
 
 // structuredPage reads a JavaScript-only page that headless Chrome did not
@@ -267,18 +291,43 @@ func structuredPage(rawURL string, p fetch.Page) (fetch.Page, bool) {
 	return p, true
 }
 
+// apiCooldown is how long an API host that refused refetch for its rate
+// limit is left alone: its route is skipped and the page read as usual.
+const apiCooldown = time.Hour
+
+// errCooling stops a route at an API host in its cooldown, before a request.
+var errCooling = errors.New("API host cooling down after a rate limit")
+
 // viaSite reads url through a site's API, as one attempt after p's. On
 // success the page is the API's Markdown; on failure p comes back with the
-// failed attempt added.
+// failed attempt added. A route whose API is cooling down adds nothing.
 func (fr *fetcher) viaSite(ctx context.Context, url string, r *site.Route, p fetch.Page) (fetch.Page, bool) {
 	_, host := store.NormalizeURL(url)
 	a := fetch.Attempt{URL: url, Host: host, Client: site.Client}
+	var apiHost string
+	var asked, skipped, got429 bool
 	start := time.Now()
 	md, err := r.Read(ctx, func(ctx context.Context, u string) ([]byte, error) {
+		_, apiHost = store.NormalizeURL(u)
+		if fr.cooling(apiHost) {
+			skipped = true
+			return nil, errCooling
+		}
+		asked = true
 		got, err := fr.f.Get(ctx, u)
 		a.Status = got.Last.Status
-		return got.Body, err
+		if err != nil {
+			got429 = got429 || got.Last.Status == http.StatusTooManyRequests
+			return got.ErrorBody, err
+		}
+		return got.Body, nil
 	})
+	if skipped && !asked {
+		return p, false
+	}
+	if err != nil && (got429 || errors.Is(err, site.ErrRateLimited)) {
+		fr.coolDown(apiHost)
+	}
 	a.Duration, a.Bytes = time.Since(start), len(md)
 	if err != nil {
 		a.Outcome, a.Err = fetch.OutcomeError, r.Name+": "+err.Error()
@@ -290,6 +339,31 @@ func (fr *fetcher) viaSite(ctx context.Context, url string, r *site.Route, p fet
 	}
 	a.Outcome = fetch.OutcomeOK
 	return fetch.Page{Body: []byte(md), ContentType: fetch.TypeMarkdown, URL: url, Last: a, Attempts: append(p.Attempts, a), Via: r.Name}, true
+}
+
+// cooling reports whether apiHost is in its cooldown.
+func (fr *fetcher) cooling(apiHost string) bool {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	return fr.clock().Before(fr.cooldown[apiHost])
+}
+
+// coolDown starts apiHost's cooldown. It lives in this process only: the
+// MCP server runs for the whole session, while refetch get reads one page.
+func (fr *fetcher) coolDown(apiHost string) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	if fr.cooldown == nil {
+		fr.cooldown = map[string]time.Time{}
+	}
+	fr.cooldown[apiHost] = fr.clock().Add(apiCooldown)
+}
+
+func (fr *fetcher) clock() time.Time {
+	if fr.now != nil {
+		return fr.now()
+	}
+	return time.Now()
 }
 
 func isTimeoutErr(err error) bool {
