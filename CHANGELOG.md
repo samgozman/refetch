@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/samgozman/refetch/compare/v0.3.0...v0.4.0) (2026-11-20)
+
+
+### Features
+
+* read archived copies of failed pages, Bloomberg articles and Cloudflare-protected pages ([#14](https://github.com/samgozman/refetch/issues/14)) ([1f609e6](https://github.com/samgozman/refetch/commit/1f609e6fd73bd15c0fc43499c0b1c38ba86ce461))
+* read Bluesky, Mastodon, YouTube and Medium; note login walls and soft 404s ([#13](https://github.com/samgozman/refetch/issues/13)) ([887a242](https://github.com/samgozman/refetch/commit/887a242b26ec9680066a27ff8f7e7a699ade5f67))
+
 ## [0.3.0](https://github.com/samgozman/refetch/compare/v0.2.0...v0.3.0) (2026-11-15)
 
 
