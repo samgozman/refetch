@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -15,9 +16,13 @@ var challengeMarkers = []string{
 	"prove your humanity",
 }
 
+const maxChallengeText = 2000
+
 // Challenge reports whether a response is a bot challenge rather than the
 // page: HTTP 503, HTTP 202 (AWS WAF answers a GET with an empty 202 and a
-// challenge script), or a short page carrying a challenge marker.
+// challenge script), or a page with little text carrying a challenge
+// marker: bot managers inject their scripts into real pages too (The
+// Atlantic's articles load /cdn-cgi/challenge-platform/scripts/).
 func Challenge(status int, body []byte) bool {
 	if status == http.StatusServiceUnavailable || status == http.StatusAccepted {
 		return true
@@ -26,12 +31,10 @@ func Challenge(status int, body []byte) bool {
 		return false
 	}
 	lower := strings.ToLower(string(body))
-	for _, m := range challengeMarkers {
-		if strings.Contains(lower, m) {
-			return true
-		}
+	if !slices.ContainsFunc(challengeMarkers, func(m string) bool { return strings.Contains(lower, m) }) {
+		return false
 	}
-	return false
+	return len([]rune(Text(body, "text/html"))) < maxChallengeText
 }
 
 var mountPoint = regexp.MustCompile(`(?i)<div[^>]+id=["']?(root|app|__next|__nuxt|svelte|main)["']?[^>]*>\s*</div>|<app-root[^>]*>\s*</app-root>`)

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/samgozman/refetch/fetch"
 )
@@ -11,6 +12,8 @@ import (
 const (
 	loginNote = "The page asks for a login before it shows its content; refetch reads public pages only. " + browserTool
 	goneNote  = "The page says it does not exist (a removed page or a wrong URL); check the URL."
+	// paywallNote keeps Claude from summarising a teaser as the article.
+	paywallNote = "The publisher marks this article for subscribers, so this text may stop at the paywall and be only the opening. Say so if you rely on it."
 )
 
 // socialSites show signed-out readers a partial page: an X profile has the
@@ -20,14 +23,16 @@ var socialSites = []string{
 }
 
 // pageNote is the one note, if any, that tells Claude a page read well is
-// not the content it was after: a soft 404, a login wall, next to no text,
-// or a social site's signed-out view. The strongest applies.
+// not the content it was after: a soft 404, a login wall, a paywall, next
+// to no text, or a social site's signed-out view. The strongest applies.
 func pageNote(p fetch.Page, rawURL, text string) string {
 	switch {
 	case fetch.NotFound(p.Body, p.ContentType):
 		return goneNote
 	case fetch.LoginForm(p.Body, p.ContentType):
 		return loginNote
+	case fetch.Paywall(p.Body, p.ContentType, utf8.RuneCountInString(text)):
+		return paywallNote
 	}
 	if note := thinNote(text); note != "" {
 		return note

@@ -32,7 +32,10 @@ fetcher and the stats report. The repo root is also the Claude Code plugin.
   under `render_timeout`
 - `site/`: a site's own public API in place of its page: Stack Exchange
   questions, Discourse topics (`/raw`), long GitHub issues, Bluesky and
-  Mastodon posts, YouTube video data, Medium posts from RSS feeds
+  Mastodon posts, YouTube video data, Medium posts from RSS feeds,
+  Bloomberg story data
+- `cmd/refetch/archive.go`: the Wayback Machine step after a failed read
+  (`archive` setting); it sends the URL to archive.org
 - `store/`: SQLite event log (`tool_calls`, `attempts`, `daily` roll-up)
 - `stats/`: the funnel and its text report
 - `config/`: defaults, `config.toml`, `REFETCH_*` env vars

@@ -40,6 +40,24 @@ func TestPageNote(t *testing.T) {
 		t.Errorf("the redirect-less address decides the site: %q", got)
 	}
 
+	paid := `<script type="application/ld+json">{"@type":"NewsArticle","isAccessibleForFree":false}</script>`
+	teaser := "<h1>Harbour cranes go electric</h1>" + strings.Repeat("<p>The port replaced its last diesel crane this week.</p>", 6)
+	walls := []struct{ name, url, contentType, body, want string }{
+		{"paywalled article", pageURL, "text/html", paid + teaser, paywallNote},
+		{"rendered gate", pageURL, "text/html", teaser + "<p>Thank you for your patience while we verify access.</p>", paywallNote},
+		{"soft 404 first", pageURL, "text/html", paid + soft404, goneNote},
+		{"login form first", pageURL, "text/html", paid + facebookLogin, loginNote},
+		{"before the thin note", pageURL, "text/html", paid + "<p>Cranes.</p>", paywallNote},
+		{"before the social note", "https://x.com/NASA", "text/html", paid + profile, paywallNote},
+		{"markdown from a site route", pageURL, fetch.TypeMarkdown, paid + "\n\nSubscribe to continue reading. " + strings.Repeat("Cranes. ", 40), ""},
+	}
+	for _, c := range walls {
+		p := fetch.Page{Body: []byte(c.body), ContentType: c.contentType, URL: c.url}
+		if got := pageNote(p, c.url, pageText(p, c.url, "", false)); got != c.want {
+			t.Errorf("%s: pageNote = %q, want %q", c.name, got, c.want)
+		}
+	}
+
 	fp := &fakePages{page: okPage(soft404)}
 	usePages(t, fp)
 	out, err := fetchPage(t.Context(), newFetcherWith(config.Default(), nil, "mcp", nil), t.TempDir(), fetchInput{URL: pageURL})
