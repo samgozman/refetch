@@ -1,0 +1,116 @@
+[
+ {
+  "id": "117625790631441803",
+  "created_at": "2026-11-16T11:05:27.567Z",
+  "in_reply_to_id": null,
+  "in_reply_to_account_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "visibility": "public",
+  "language": "en",
+  "url": "https://mastodon.social/@Mastodon/117625790631441803",
+  "replies_count": 4,
+  "reblogs_count": 65,
+  "favourites_count": 124,
+  "edited_at": null,
+  "content": "<p>Update on <a href=\"https://mastodon.social/tags/Plushtodon\" class=\"mention hashtag\" rel=\"tag\">#<span>Plushtodon</span></a> pre-orders: The plushies are going through German customs on the way to our warehouse, after which they’ll start getting shipped out. Unfortunately we could not meet the early November deadline that we promised due to delays outside our control. You will get an email once your order is dispatched. You can still pre-order if you haven’t yet!</p><p><a href=\"https://shop.joinmastodon.org/products/pre-order-mastodon-plushie-20cm-plushtodon\" target=\"_blank\" rel=\"nofollow noopener\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">shop.joinmastodon.org/products</span><span class=\"invisible\">/pre-order-mastodon-plushie-20cm-plushtodon</span></a></p>",
+  "account": {
+   "id": "13179",
+   "username": "Mastodon",
+   "acct": "Mastodon",
+   "display_name": "Mastodon",
+   "url": "https://mastodon.social/@Mastodon",
+   "bot": false
+  },
+  "reblog": null,
+  "media_attachments": [],
+  "poll": null
+ },
+ {
+  "id": "117128801091131239",
+  "created_at": "2026-08-20T16:34:28.999Z",
+  "in_reply_to_id": null,
+  "in_reply_to_account_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "visibility": "public",
+  "language": null,
+  "url": "https://mastodon.social/users/Mastodon/statuses/117128801091131239/activity",
+  "replies_count": 0,
+  "reblogs_count": 0,
+  "favourites_count": 0,
+  "edited_at": null,
+  "content": "",
+  "account": {
+   "id": "13179",
+   "username": "Mastodon",
+   "acct": "Mastodon",
+   "display_name": "Mastodon",
+   "url": "https://mastodon.social/@Mastodon",
+   "bot": false
+  },
+  "reblog": {
+   "id": "117128796127029335",
+   "created_at": "2026-08-20T16:33:13.251Z",
+   "in_reply_to_id": null,
+   "in_reply_to_account_id": null,
+   "sensitive": false,
+   "spoiler_text": "",
+   "visibility": "public",
+   "language": "en",
+   "url": "https://mastodon.social/@MastodonEngineering/117128796127029335",
+   "replies_count": 25,
+   "reblogs_count": 327,
+   "favourites_count": 519,
+   "edited_at": null,
+   "content": "<p>We just released Mastodon 4.7.0!</p><p>This version contains very few user-facing changes, but significantly reworks the backend code to improve security and support new protocol features.</p><p>You can read more about it on our blog: <a href=\"https://blog.joinmastodon.org/2026/08/mastodon-4.7/\" target=\"_blank\" rel=\"nofollow noopener\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">blog.joinmastodon.org/2026/08/</span><span class=\"invisible\">mastodon-4.7/</span></a></p><p>Note for admins: the database migrations might take a long time, this is expected (see the release notes).</p><p>Release notes and upgrade instructions are available here: <a href=\"https://github.com/mastodon/mastodon/releases/tag/v4.7.0\" target=\"_blank\" rel=\"nofollow noopener\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">github.com/mastodon/mastodon/r</span><span class=\"invisible\">eleases/tag/v4.7.0</span></a></p><p><a href=\"https://mastodon.social/tags/mastoadmin\" class=\"mention hashtag\" rel=\"tag\">#<span>mastoadmin</span></a></p>",
+   "account": {
+    "id": "110752047556790864",
+    "username": "MastodonEngineering",
+    "acct": "MastodonEngineering",
+    "display_name": "Mastodon Engineering",
+    "url": "https://mastodon.social/@MastodonEngineering",
+    "bot": false
+   },
+   "reblog": null,
+   "media_attachments": [],
+   "poll": null
+  },
+  "media_attachments": [],
+  "poll": null
+ },
+ {
+  "id": "116929144390213579",
+  "created_at": "2026-07-16T10:19:09.512Z",
+  "in_reply_to_id": null,
+  "in_reply_to_account_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "visibility": "public",
+  "language": "en",
+  "url": "https://mastodon.social/@Mastodon/116929144390213579",
+  "replies_count": 20,
+  "reblogs_count": 362,
+  "favourites_count": 522,
+  "edited_at": null,
+  "content": "<p>New in Mastodon 4.6: Newsletters 📬</p><p>Mastodon servers now support email newsletters, which allow people without a social web account to subscribe to your posts via email. This feature is opt-in at the server level.</p><p>We&#39;re building Mastodon for people and institutions that want independence from corporate-controlled social networks, so they can reach their audience directly wherever those people are. </p><p>Explore Mastodon 4.6&#39;s other new features: <a href=\"https://blog.joinmastodon.org/2026/06/mastodon-4.6/\" target=\"_blank\" rel=\"nofollow noopener\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">blog.joinmastodon.org/2026/06/</span><span class=\"invisible\">mastodon-4.6/</span></a></p>",
+  "account": {
+   "id": "13179",
+   "username": "Mastodon",
+   "acct": "Mastodon",
+   "display_name": "Mastodon",
+   "url": "https://mastodon.social/@Mastodon",
+   "bot": false
+  },
+  "reblog": null,
+  "media_attachments": [
+   {
+    "id": "116929144353146667",
+    "type": "image",
+    "url": "https://files.mastodon.social/media_attachments/files/116/929/144/353/146/667/original/4541caf1a6f64af8.png",
+    "description": "The Mastodon profile page for Sage, the demo cat. Underneath Sage's profile information and bio, there is a field which says, \"Sign up for email updates from Sage,\" followed by a text field for the visitor's email and a \"Subscribe\" button. "
+   }
+  ],
+  "poll": null
+ }
+]

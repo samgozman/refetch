@@ -5,7 +5,9 @@ package site
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"errors"
 	"html"
 	"net/url"
 	"regexp"
@@ -15,8 +17,11 @@ import (
 // Client is the attempt client name of a read through a site's API.
 const Client = "site_api"
 
-// Getter fetches one public URL and returns its body.
+// Getter fetches one public URL: its body, or an error and the error answer's.
 type Getter func(ctx context.Context, url string) ([]byte, error)
+
+// ErrRateLimited marks a read refused for the API's rate limit, as HTTP 429 is.
+var ErrRateLimited = errors.New("rate limited")
 
 // Route reads one page through its site's API.
 type Route struct {
@@ -30,7 +35,7 @@ func ForURL(raw string) *Route {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil
 	}
-	return stackExchange(u)
+	return cmp.Or(stackExchange(u), bluesky(u), medium(u))
 }
 
 // ForPage is the route for a page its markup names, read after it.
@@ -42,7 +47,16 @@ func ForPage(raw string, body []byte) *Route {
 	if r := discourse(u, body); r != nil {
 		return r
 	}
-	return github(u, body)
+	if r := github(u, body); r != nil {
+		return r
+	}
+	if r := youtube(u, body); r != nil {
+		return r
+	}
+	if r := bloomberg(u, body); r != nil {
+		return r
+	}
+	return mastodon(u, body)
 }
 
 var titleTag = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)

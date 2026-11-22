@@ -48,7 +48,8 @@ Chrome step, which adds JavaScript-only pages and some challenges.
   many refetch picked up and which step resolved them. All data stays on
   your machine.
 - **Safe by default.** Public addresses only, one page per call, no
-  crawling, no cookies kept.
+  crawling, no cookies kept. A URL refetch cannot read is looked up at the
+  Wayback Machine unless you turn that off.
 
 ## Install
 
@@ -121,8 +122,10 @@ flowchart TD
         Client -- "challenge or<br/>JavaScript-only page" --> Headless["2. Headless Chrome<br/>your installed Chrome, 15 s at most"]
         Client -- "page" --> Text["Page as Markdown"]
         Headless -- "page" --> Text
-        Client -- "HTTP 403/429<br/>or error" --> Handoff["Hand-off: why it failed"]
-        Headless -- "still blocked" --> Handoff
+        Client -- "HTTP 403/429<br/>or error" --> Wayback["3. Wayback Machine<br/>latest archived copy, 20 s at most"]
+        Headless -- "still blocked" --> Wayback
+        Wayback -- "snapshot" --> Text
+        Wayback -- "none" --> Handoff["Hand-off: why it failed"]
     end
 
     Text --> Rescued(["Claude answers from the page"])
@@ -160,8 +163,13 @@ show how often each path was taken. Step by step:
    without Chrome. A host whose last two fetches in the past week only
    headless Chrome could read goes straight to it (this needs `stats` on, as
    it reads the stats database); the HTTP clients still run if it fails.
-5. If both steps fail, the result says why and suggests a browser tool if
-   you have one.
+5. If both steps fail (a refusal, a challenge, an error page, a dead host),
+   refetch looks the URL up at the Wayback Machine and reads its latest
+   snapshot saved with HTTP 200, within 20 s. The result says it is an
+   archived copy, gives its date and why the live page failed, and warns that
+   it may be out of date. `archive = "off"` turns this step off.
+6. If there is no snapshot either, the result says why and suggests a
+   browser tool if you have one.
 
 `fetch_page` returns a page as Markdown: headings, lists, links, tables and
 code blocks kept, scripts and hidden elements dropped. So is the site's own
@@ -192,6 +200,48 @@ Some sites serve the same public content better through their own API, and
   date, where the page shows a browser only the first posts.
 - GitHub issues and pull requests whose page hides comments behind "Load
   more" come from the REST API (60 anonymous requests an hour).
+- Bluesky profiles and posts come from Bluesky's public API, as the page is
+  an empty JavaScript app for signed-out readers. A profile comes with its
+  bio, counts and about 30 recent posts; a post with the posts it replies
+  to and its replies, the author's own thread first. Posts show their date,
+  counts, full links, image alt text and quoted posts. Accounts that show
+  their posts only to signed-in users stay hidden.
+- Mastodon profiles and posts, on any instance, come from that instance's
+  REST API instead of its JavaScript app: a profile with its recent posts,
+  a post with the posts it replies to and its replies, content warnings,
+  media descriptions and boosts included. An instance that refuses
+  anonymous API access gets its page read as before.
+- YouTube videos are read from the player data the watch page carries:
+  title, channel, date, duration, views, category, keywords and the full
+  description with its timestamps. No extra request is made. Transcripts
+  are not included, as YouTube serves captions only with a token refetch
+  does not have.
+- Medium posts come from the author's or publication's RSS feed, as Medium's
+  pages challenge automated readers. The feed holds the full text of only
+  the newest posts, about ten; for an older or member-only post, or a
+  `medium.com/p/…` address, refetch reads the page as before.
+- Bloomberg articles are read from the story data their page carries for
+  its scripts. The HTML around it shows only the byline and the first
+  paragraphs; the data holds the whole text a reader without cookies is
+  served, rendered with its headline, authors, date, takeaways, headings,
+  lists and links. No extra request is made.
+
+When a site's API says refetch has used up its quota (HTTP 429, a Stack
+Exchange throttle or GitHub's rate-limit message), refetch leaves that API
+alone for an hour and reads the page instead. The pause lasts as long as
+the MCP server, one Claude Code session. A JavaScript-only page whose markup
+names one of these sites (a Mastodon instance) goes to the site's API
+before headless Chrome.
+
+When a page loads but is not the content, the result starts with a note: a
+short page that is mostly a login form, a page whose title or main heading
+says it does not exist (a "soft 404" sent with HTTP 200), or the signed-out
+view of X, Instagram, Facebook, Threads, TikTok and LinkedIn, which may lack
+the posts, comments and full profiles that need a signed-in browser. A news
+article whose schema.org data marks it for subscribers, or whose page shows
+a paywall ("Subscribe to continue reading"), gets a note that the text may
+stop at the paywall and be only the opening. The page text still comes back,
+and notes change no outcome or statistic.
 
 Pages that put their content in `<noscript>` (Discourse lists) or keep it
 hidden until a script shows it (Zendesk help articles) are read from there
@@ -249,6 +299,7 @@ another file. Everything is on by default.
 | `mode` | `REFETCH_MODE` | `"nudge"` | `"inline"`: the hook fetches the page itself and puts its first 8,000 characters next to the failed result |
 | `user_agent` | `REFETCH_USER_AGENT` | `refetch/<version>` | The plain client's User-Agent |
 | `use_proxy` | `REFETCH_USE_PROXY` | `false` | `true` sends connections through `HTTPS_PROXY`, except to hosts `NO_PROXY` lists. Off by default because a proxy that decrypts TLS replaces the Chrome-like handshake with its own |
+| `archive` | `REFETCH_ARCHIVE` | `"wayback"` | `"wayback"`: when a page cannot be read, look its URL up at the Wayback Machine (archive.org) and read the latest archived copy. `"off"`: never send failed URLs to archive.org |
 
 ```toml
 # ~/.config/refetch/config.toml
@@ -289,6 +340,13 @@ These limits are always on, whatever the settings:
 - No cookies are kept between calls: each render uses a throwaway Chrome
   profile.
 - Pages are capped at 2 MB, and PDF and office files at 32 MB.
+- Only failed reads go to archive.org: when refetch cannot read a page (in
+  `fetch_page`, or in the hook with `mode = "inline"`), it sends that URL to
+  archive.org to look for an archived copy, unless `archive = "off"`. It never
+  does this for pages it read, private addresses, pages robots.txt disallows
+  (with `respect_robots`), Google Docs and Drive links, or URLs with a user
+  name or a credential-like query parameter (`token`, `key`, `sig`, `code`,
+  `X-Amz-*`, …).
 - refetch drives headless Chrome over a pipe, not a debugging port, so no
   other program on the machine can reach it.
 

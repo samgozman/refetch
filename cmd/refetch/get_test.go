@@ -39,7 +39,7 @@ func okPage(body string) fetch.Page {
 }
 
 // usePages makes every fetcher built in this test use fp, with headless
-// Chrome off so nothing outside the test runs.
+// Chrome and the Wayback Machine step off so nothing outside the test runs.
 func usePages(t *testing.T, fp *fakePages) {
 	t.Helper()
 	old := pagesFor
@@ -48,6 +48,7 @@ func usePages(t *testing.T, fp *fakePages) {
 	t.Setenv("REFETCH_DATA", t.TempDir())
 	t.Setenv("REFETCH_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
 	t.Setenv("REFETCH_RENDER", "off")
+	t.Setenv("REFETCH_ARCHIVE", "off")
 	t.Setenv("REFETCH_CHROME", filepath.Join(t.TempDir(), "no-chrome"))
 }
 
@@ -55,7 +56,9 @@ func TestFetchPage(t *testing.T) {
 	const u = pageURL
 	fp := &fakePages{page: okPage(article)}
 	usePages(t, fp)
-	fr := newFetcherWith(config.Default(), nil, "mcp", nil)
+	cfg := config.Default()
+	cfg.Archive = "off"
+	fr := newFetcherWith(cfg, nil, "mcp", nil)
 	dir := t.TempDir()
 
 	text, err := fetchPage(t.Context(), fr, dir, fetchInput{URL: u})
