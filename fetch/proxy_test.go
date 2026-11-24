@@ -73,10 +73,10 @@ func TestProxyTunnelsBothClients(t *testing.T) {
 	cp := withProxy(t, url.UserPassword("agent", "s3cret"))
 	for name, get := range map[string]func() (reply, error){
 		"plain": func() (reply, error) {
-			return plainGet(t.Context(), "http://refetch-test.invalid/page", "refetch-test", 5*time.Second)
+			return plainGet(t.Context(), "http://refetch-test.invalid/page", "refetch-test", 5*time.Second, false)
 		},
 		"chrome_like": func() (reply, error) {
-			return chromeGet(t.Context(), "http://refetch-test.invalid/page", 5*time.Second)
+			return chromeGet(t.Context(), "http://refetch-test.invalid/page", 5*time.Second, false)
 		},
 	} {
 		r, err := get()

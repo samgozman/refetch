@@ -90,7 +90,7 @@ type reply struct {
 // the public-only dialer (and through it any proxy UseProxy set) and the
 // redirect rules, never uses HTTP/3 (QUIC would bypass the dialer), and keeps
 // no cookies between fetches.
-func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply, error) {
+func chromeGet(ctx context.Context, rawURL string, timeout time.Duration, files bool) (reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	opts := []tlsclient.HttpClientOption{
@@ -123,17 +123,19 @@ func chromeGet(ctx context.Context, rawURL string, timeout time.Duration) (reply
 	}
 	defer func() { _ = resp.Body.Close() }()
 	ct := resp.Header.Get("Content-Type")
-	body, err := readBody(resp.Body, ct)
+	body, err := readBody(resp.Body, ct, files)
 	return reply{resp.StatusCode, body, ct, resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 
 // readBody reads a response body: a page up to MaxBytes, cut there; a
 // response that may be a PDF or office file, by its type or its first
-// bytes, up to MaxDocBytes, as a cut file cannot be read at all.
-func readBody(r io.Reader, contentType string) ([]byte, error) {
+// bytes, or with files any file that is not text, up to MaxDocBytes, as a
+// cut file cannot be read at all.
+func readBody(r io.Reader, contentType string, files bool) ([]byte, error) {
 	body, err := io.ReadAll(io.LimitReader(r, MaxBytes))
 	mt, _, _ := mime.ParseMediaType(contentType)
-	if err != nil || len(body) < MaxBytes || !isDocType(mt) && !mayBeDocument(body) {
+	whole := isDocType(mt) || mayBeDocument(body) || files && NotText(contentType, body) != ""
+	if err != nil || len(body) < MaxBytes || !whole {
 		return body, err
 	}
 	rest, err := io.ReadAll(io.LimitReader(r, MaxDocBytes+1-MaxBytes))
@@ -151,7 +153,7 @@ var plainClient = &http.Client{
 	},
 }
 
-func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Duration) (reply, error) {
+func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Duration, files bool) (reply, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
@@ -165,7 +167,7 @@ func plainGet(ctx context.Context, rawURL, userAgent string, timeout time.Durati
 	}
 	defer func() { _ = resp.Body.Close() }()
 	ct := resp.Header.Get("Content-Type")
-	body, err := readBody(resp.Body, ct)
+	body, err := readBody(resp.Body, ct, files)
 	return reply{resp.StatusCode, body, ct, resp.Header.Get("Cf-Mitigated"), resp.Request.URL.String()}, err
 }
 

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/zlib"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -243,17 +244,71 @@ func TestGetReadsADocument(t *testing.T) {
 
 func TestReadBody(t *testing.T) {
 	big := strings.Repeat("x", MaxBytes+10)
-	if b, err := readBody(strings.NewReader(big), "text/html"); err != nil || len(b) != MaxBytes {
+	if b, err := readBody(strings.NewReader(big), "text/html", false); err != nil || len(b) != MaxBytes {
 		t.Errorf("a page is cut at MaxBytes: %d, %v", len(b), err)
 	}
-	if b, err := readBody(strings.NewReader(big), "application/pdf"); err != nil || len(b) != len(big) {
+	if b, err := readBody(strings.NewReader(big), "application/pdf", false); err != nil || len(b) != len(big) {
 		t.Errorf("a document may pass MaxBytes: %d, %v", len(b), err)
 	}
-	if _, err := readBody(strings.NewReader(strings.Repeat("x", MaxDocBytes+1)), "application/octet-stream"); err == nil {
+	if _, err := readBody(strings.NewReader(strings.Repeat("x", MaxDocBytes+1)), "application/octet-stream", false); err == nil {
 		t.Error("a document over MaxDocBytes must fail")
 	}
-	if b, err := readBody(strings.NewReader("%PDF-"+big), "application/force-download"); err != nil || len(b) != len(big)+5 {
+	if b, err := readBody(strings.NewReader("%PDF-"+big), "application/force-download", false); err != nil || len(b) != len(big)+5 {
 		t.Errorf("a PDF under another type may pass MaxBytes: %d, %v", len(b), err)
+	}
+}
+
+func TestReadBodyRawFiles(t *testing.T) {
+	big := "\x89PNG\r\n\x1a\n" + strings.Repeat("\xff", MaxBytes)
+	if b, err := readBody(strings.NewReader(big), "image/png", true); err != nil || len(b) != len(big) {
+		t.Errorf("a file may pass MaxBytes: %d, %v", len(b), err)
+	}
+	if b, err := readBody(strings.NewReader(big), "", true); err != nil || len(b) != len(big) {
+		t.Errorf("an untyped file is found by its bytes: %d, %v", len(b), err)
+	}
+	if b, err := readBody(strings.NewReader(big), "image/png", false); err != nil || len(b) != MaxBytes {
+		t.Errorf("without raw files a file is cut at MaxBytes: %d, %v", len(b), err)
+	}
+	if b, err := readBody(strings.NewReader(strings.Repeat("x", MaxBytes+10)), "text/html", true); err != nil || len(b) != MaxBytes {
+		t.Errorf("a page is still cut at MaxBytes: %d, %v", len(b), err)
+	}
+	if _, err := readBody(strings.NewReader(strings.Repeat("\xff", MaxDocBytes+1)), "image/png", true); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("a file over MaxDocBytes must fail: %v", err)
+	}
+}
+
+func TestGetRawFiles(t *testing.T) {
+	const img, doc = "https://example.com/frame.png", "https://example.com/report.pdf"
+	png := "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xe9\xff\x80"
+	pages := map[string]page{
+		img: {status: 200, body: png, ct: "image/png"},
+		doc: {status: 200, body: string(makePDF("BT /F1 12 Tf 72 720 Td (Quarterly report) Tj ET")), ct: "application/pdf"},
+	}
+	var attempts []Attempt
+	f := &Fetcher{RawFiles: true, chrome: fake(pages, nil), Record: func(a Attempt) { attempts = append(attempts, a) }}
+	p, err := f.Get(t.Context(), img)
+	if err != nil || !bytes.Equal(p.Body, []byte(png)) || p.ContentType != "image/png" || p.URL != img {
+		t.Errorf("raw file: %v, %q %q %q", err, p.Body, p.ContentType, p.URL)
+	}
+	if len(attempts) != 1 || attempts[0].Outcome != OutcomeOK || attempts[0].Bytes != len(png) {
+		t.Errorf("one ok attempt expected: %+v", attempts)
+	}
+	if p, err := f.Get(t.Context(), doc); err != nil || string(p.Body) != "Quarterly report" || p.ContentType != TypeMarkdown {
+		t.Errorf("a document is still Markdown: %v, %q %q", err, p.Body, p.ContentType)
+	}
+	pages[img] = page{status: 200, body: png, ct: "application/octet-stream"}
+	if p, err := f.Get(t.Context(), img); err != nil || p.ContentType != "application/octet-stream" {
+		t.Errorf("the server's type is kept: %v, %q", err, p.ContentType)
+	}
+	f.chrome = func(context.Context, string) (reply, error) {
+		return reply{status: 200, body: []byte(png), url: img}, nil
+	}
+	if p, err := f.Get(t.Context(), img); err != nil || p.ContentType != "image/png" {
+		t.Errorf("an untyped file is typed by its bytes: %v, %q", err, p.ContentType)
+	}
+	f.RawFiles = false
+	if _, err := f.Get(t.Context(), img); !errors.Is(err, ErrNotText) {
+		t.Errorf("without raw files: %v", err)
 	}
 }
 
