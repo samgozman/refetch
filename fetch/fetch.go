@@ -5,6 +5,7 @@
 package fetch
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -84,6 +85,7 @@ type Fetcher struct {
 	UserAgent     string        // the plain client's User-Agent; DefaultUserAgent when empty
 	RobotsAgent   string        // the robots.txt agent name; DefaultRobotsAgent when empty
 	Timeout       time.Duration // per client; DefaultTimeout when zero
+	RawFiles      bool          // return a file that is neither text nor a document, such as an image, as its bytes, up to MaxDocBytes, instead of ErrNotText
 	Record        func(Attempt) // called after every attempt, if set
 
 	plain, chrome getter // tests replace them
@@ -145,6 +147,7 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	start := time.Now()
 	r, err := get(ctx, rawURL)
 	status, body, ct := r.status, r.body, r.contentType
+	raw := false
 	a := Attempt{URL: rawURL, Client: client, Status: status, Bytes: len(body), Duration: time.Since(start), Outcome: OutcomeOK}
 	switch {
 	case err != nil:
@@ -165,6 +168,9 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	case NotText(ct, body) != "":
 		md, ok, derr := Document(ctx, body)
 		switch {
+		case !ok && f.RawFiles:
+			raw = true
+			ct = cmp.Or(ct, NotText(ct, body))
 		case !ok:
 			a.Outcome = OutcomeError
 			err = fmt.Errorf("%w (%s)", ErrNotText, NotText(ct, body))
@@ -183,10 +189,13 @@ func (f *Fetcher) try(ctx context.Context, p *Page, client, rawURL string) error
 	}
 	f.record(p, &a)
 	p.ErrorBody = nil
-	if err == nil {
+	switch {
+	case err == nil && raw:
+		p.Body, p.ContentType, p.URL = body, ct, r.url
+	case err == nil:
 		p.Body, p.ContentType = toUTF8(body, ct)
 		p.URL = r.url
-	} else if status >= http.StatusBadRequest {
+	case status >= http.StatusBadRequest:
 		p.ErrorBody = body
 	}
 	if a.Outcome == OutcomeNeedsJS {
@@ -202,14 +211,14 @@ func (f *Fetcher) getter(client string) getter {
 			return f.chrome
 		}
 		return func(ctx context.Context, u string) (reply, error) {
-			return chromeGet(ctx, u, f.timeout())
+			return chromeGet(ctx, u, f.timeout(), f.RawFiles)
 		}
 	}
 	if f.plain != nil {
 		return f.plain
 	}
 	return func(ctx context.Context, u string) (reply, error) {
-		return plainGet(ctx, u, f.userAgent(), f.timeout())
+		return plainGet(ctx, u, f.userAgent(), f.timeout(), f.RawFiles)
 	}
 }
 
