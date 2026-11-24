@@ -183,10 +183,10 @@ func TestBothClientsRefuseNonPublicAddresses(t *testing.T) {
 	t.Cleanup(tls.Close)
 	gets := map[string]getter{
 		"plain": func(ctx context.Context, u string) (reply, error) {
-			return plainGet(ctx, u, DefaultUserAgent, 5*time.Second)
+			return plainGet(ctx, u, DefaultUserAgent, 5*time.Second, false)
 		},
 		"chrome": func(ctx context.Context, u string) (reply, error) {
-			return chromeGet(ctx, u, 5*time.Second)
+			return chromeGet(ctx, u, 5*time.Second, false)
 		},
 	}
 	for name, get := range gets {
