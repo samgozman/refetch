@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/samgozman/refetch/compare/v0.4.0...v0.5.0) (2026-11-24)
+
+
+### Features
+
+* return files as bytes from Fetcher.Get with RawFiles ([#17](https://github.com/samgozman/refetch/issues/17)) ([d6f43c7](https://github.com/samgozman/refetch/commit/d6f43c78838dcdcd608588b6d6d91c76def9b17c))
+
 ## [0.4.0](https://github.com/samgozman/refetch/compare/v0.3.0...v0.4.0) (2026-11-20)
 
 
